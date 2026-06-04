@@ -1,0 +1,93 @@
+[
+  {
+    "owner": "J NEDDAF FAMILY TRUST",
+    "property": "1734 ADRIANA LN, HOUSTON, TX",
+    "mailing": "1434 RIVERBEND PLACE, TWIN FALLS, ID, 83301-3097",
+    "absentee": true,
+    "value": 197205
+  },
+  {
+    "owner": "RODRIGUEZ EDGAR JAVIER",
+    "property": "7307 KRUEGER RD, Houston, TX",
+    "mailing": "3618 HANSFORD PLACE, PEARLAND, TX, 77584-4989",
+    "absentee": true,
+    "value": 126000
+  },
+  {
+    "owner": "DEWAR LOWETESA",
+    "property": "3318 MOONEY RD, Houston, TX",
+    "mailing": "6203 LAKE CHASE CT, KATY, TX, 77493-2480",
+    "absentee": true,
+    "value": 257945
+  },
+  {
+    "owner": "SHREINER PAUL R",
+    "property": "12807 GRAND CROSS LN, Houston, TX",
+    "mailing": "349 CAGLE ROCK CIR, RUSSELLVILLE, AR, 72802-1921",
+    "absentee": true,
+    "value": 242427
+  },
+  {
+    "owner": "BARRON FELIPE",
+    "property": "14027 HENRY RD, HOUSTON, TX",
+    "mailing": "14027 HENRY RD, HOUSTON, TX, 77060-5610",
+    "absentee": false,
+    "value": 1077133
+  },
+  {
+    "owner": "MARTINEZ BRENDA",
+    "property": "7126 FAIRWAY DR, Houston, TX",
+    "mailing": "7126 FAIRWAY DR, HOUSTON, TX, 77087-3523",
+    "absentee": false,
+    "value": 160359
+  },
+  {
+    "owner": "YELL CYNTHIA M",
+    "property": "2030 KAMREN DR, Houston, TX",
+    "mailing": "PO BOX 1665, HOUSTON, TX, 77251-1665",
+    "absentee": false,
+    "value": 253210
+  },
+  {
+    "owner": "ROMERO ANGEL ET UX",
+    "property": "148 E PARKER RD, Houston, TX",
+    "mailing": "1713 HAVNER LN, HOUSTON, TX, 77093-1812",
+    "absentee": false,
+    "value": 320931
+  },
+  {
+    "owner": "BULLOCK ELIZABETH",
+    "property": "3123 BROADMEAD DR, HOUSTON, TX",
+    "mailing": "3123 BROADMEAD DR, HOUSTON, TX, 77025-3819",
+    "absentee": false,
+    "value": 332788
+  },
+  {
+    "owner": "KEEBLE MARY JOYCE",
+    "property": "5317 PEASE ST, Houston, TX",
+    "mailing": "5330 PEASE ST, HOUSTON, TX, 77023-2040",
+    "absentee": false,
+    "value": 165000
+  },
+  {
+    "owner": "GU LEIGANG",
+    "property": "6806 STABLETON LN, Houston, TX",
+    "mailing": "13307 ARBOR VILLA LN, HOUSTON, TX, 77044-2084",
+    "absentee": false,
+    "value": 482628
+  },
+  {
+    "owner": "CARNEY MICHELLE M",
+    "property": "4410 LIBBEY DR, Houston, TX",
+    "mailing": "4410 LIBBEY LN, HOUSTON, TX, 77092-5303",
+    "absentee": false,
+    "value": 284789
+  },
+  {
+    "owner": "AVENVEST PROPERTIES LLC",
+    "property": "854 JUNELL ST, Houston, TX",
+    "mailing": "702 W SAM HOUSTON PKWY I STE 300, HOUSTON, TX, 77042-",
+    "absentee": false,
+    "value": 155000
+  }
+]

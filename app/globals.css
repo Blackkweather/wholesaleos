@@ -2,26 +2,160 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* Light theme */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 6%;
+    --primary: 152 76% 34%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;
+    --input: 0 0% 86%;
+    --ring: 152 76% 34%;
+
+    --brand: 152 78% 38%;
+    --brand-foreground: 0 0% 100%;
+    --warning: 40 92% 44%;
+    --warning-foreground: 0 0% 100%;
+    --danger: 0 84% 52%;
+    --danger-foreground: 0 0% 100%;
+    --info: 213 90% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --chart-1: 152 78% 40%;
+    --chart-2: 213 90% 52%;
+    --chart-3: 40 92% 48%;
+    --chart-4: 280 65% 58%;
+    --chart-5: 0 84% 58%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Dark theme — default */
+    --background: 0 0% 3%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 152 100% 50%;
+    --primary-foreground: 0 0% 3%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 100% 65%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 17%;
+    --input: 0 0% 18%;
+    --ring: 152 100% 50%;
+
+    --brand: 152 100% 50%;
+    --brand-foreground: 0 0% 3%;
+    --warning: 50 100% 52%;
+    --warning-foreground: 0 0% 6%;
+    --danger: 0 100% 67%;
+    --danger-foreground: 0 0% 100%;
+    --info: 213 100% 66%;
+    --info-foreground: 0 0% 6%;
+
+    --chart-1: 152 100% 50%;
+    --chart-2: 213 100% 66%;
+    --chart-3: 50 100% 55%;
+    --chart-4: 280 90% 70%;
+    --chart-5: 0 100% 67%;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading tracking-wide;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  /* Green glow for money / scores */
+  .text-glow {
+    text-shadow: 0 0 20px hsl(var(--brand) / 0.5);
+  }
+  .text-glow-sm {
+    text-shadow: 0 0 10px hsl(var(--brand) / 0.45);
+  }
+  .bg-grid {
+    background-image: linear-gradient(
+        to right,
+        hsl(var(--border) / 0.45) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, hsl(var(--border) / 0.45) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  .bg-radial-brand {
+    background-image: radial-gradient(
+      ellipse 80% 50% at 50% -10%,
+      hsl(var(--brand) / 0.14),
+      transparent 70%
+    );
+  }
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
   }
 }

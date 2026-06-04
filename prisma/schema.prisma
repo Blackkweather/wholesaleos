@@ -1,0 +1,362 @@
+// WholesaleOS data model
+// Postgres (Supabase). Run: npx prisma db push  (or migrate dev) then npx prisma generate
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" for local dev; "rhel-openssl-3.0.x" is Vercel's serverless runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Supabase: pooled URL for DATABASE_URL, direct URL for migrations.
+  directUrl = env("DIRECT_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Auth (NextAuth / Auth.js Prisma adapter)
+// ----------------------------------------------------------------------------
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ----------------------------------------------------------------------------
+// Core domain
+// ----------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+
+  // Encrypted per-user integration secrets (AES-256, see lib/encrypt.ts)
+  twilioSid     String?
+  twilioToken   String?
+  twilioPhone   String?
+  elevenLabsKey String?
+
+  // Web Push subscription payload
+  pushSubscription Json?
+
+  onboardedAt DateTime?
+
+  accounts Account[]
+  sessions Session[]
+  markets  Market[]
+  deals    Deal[]
+  buyers   Buyer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Market {
+  id        String     @id @default(cuid())
+  city      String
+  state     String?
+  zipCode   String?
+  active    Boolean    @default(true)
+  // Buy box
+  minPrice  Int?
+  maxPrice  Int?
+  dealTypes DealType[]
+  lastScanAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deals  Deal[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Deal {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketId String?
+  market   Market? @relation(fields: [marketId], references: [id], onDelete: SetNull)
+
+  address   String
+  city      String
+  state     String?
+  zipCode   String?
+  situation String?
+  dealType  DealType @default(OTHER)
+  stage     Stage    @default(FOUND)
+
+  // Financials
+  arv            Float?
+  listPrice      Float?
+  offerPrice     Float?
+  repairCost     Float?
+  assignmentFee  Float?
+  closingCost    Float?
+  profit         Float? // AI-estimated spread at discovery
+  expectedProfit Float? // your underwritten target spread
+  actualProfit   Float? // realized at close
+
+  // AI scoring (0-100)
+  score             Int?
+  motivationScore   Int?
+  profitScore       Int?
+  contactDifficulty Int?
+  verdict           String? // GO | CAUTION | PASS
+  aiSummary         String?
+
+  // Owner / contact
+  ownerName  String?
+  ownerPhone String?
+  ownerEmail String?
+
+  // Provenance
+  source    String? // zillow | craigslist | facebook | county | auction | manual
+  sourceUrl String?
+
+  notes String?
+  tags  String[]
+
+  hot            Boolean   @default(false)
+  optedOut       Boolean   @default(false)
+  nextFollowUpAt DateTime?
+
+  // Lifecycle timestamps (date_found = createdAt). Set automatically on stage change.
+  dateContacted     DateTime?
+  firstResponseDate DateTime?
+  appointmentDate   DateTime?
+  offerDate         DateTime?
+  contractDate      DateTime?
+  assignmentDate    DateTime?
+  closingDate       DateTime?
+  deadDate          DateTime?
+
+  // Follow-up engine
+  followUpStep   Int       @default(0) // which cadence step last sent (0 = none)
+  lastContactAt  DateTime?             // last time we reached out (any channel)
+
+  scripts       Script[]
+  smsMessages   SMS[]
+  activities    Activity[]
+  sequences     SmsSequence[]
+  buyerOutreach DealBuyer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, stage])
+  @@index([userId, createdAt])
+}
+
+model Script {
+  id        String     @id @default(cuid())
+  dealId    String
+  deal      Deal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  type      ScriptType
+  tone      String?
+  content   String
+  version   Int        @default(1)
+  createdAt DateTime   @default(now())
+
+  @@index([dealId])
+}
+
+model SmsSequence {
+  id          String    @id @default(cuid())
+  dealId      String
+  deal        Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  active      Boolean   @default(true)
+  currentStep Int       @default(0)
+  startedAt   DateTime  @default(now())
+  nextSendAt  DateTime?
+  messages    SMS[]
+  createdAt   DateTime  @default(now())
+
+  @@index([active, nextSendAt])
+}
+
+model SMS {
+  id           String       @id @default(cuid())
+  dealId       String
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  sequenceId   String?
+  sequence     SmsSequence? @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
+  direction    SmsDirection @default(OUTBOUND)
+  message      String
+  phone        String?
+  status       SMSStatus    @default(DRAFT)
+  step         Int          @default(0)
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  twilioSid    String?
+  error        String?
+  createdAt    DateTime     @default(now())
+
+  @@index([dealId])
+  @@index([status, scheduledFor])
+}
+
+model Buyer {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  email     String?
+  phone     String?
+  company   String?
+  website   String?
+  buyerType String?
+  source    String?
+  notes     String?
+  // Buy criteria
+  cities    String[]
+  minPrice  Int?
+  maxPrice  Int?
+  dealTypes DealType[]
+  criteria  Json?
+  tags      String[]
+  createdAt DateTime   @default(now())
+  outreach  DealBuyer[]
+
+  @@index([userId])
+}
+
+// Disposition: a deal sent to a cash buyer, with reply / assignment status.
+model DealBuyer {
+  id        String      @id @default(cuid())
+  dealId    String
+  deal      Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     Buyer       @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  status    DispoStatus @default(SENT)
+  notes     String?
+  sentAt    DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([dealId, buyerId])
+  @@index([dealId])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  dealId    String
+  deal      Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  content   String
+  meta      Json?
+  createdAt DateTime     @default(now())
+
+  @@index([dealId])
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum Stage {
+  FOUND
+  VERIFIED
+  CONTACTED
+  RESPONSE_RECEIVED
+  INTERESTED
+  APPOINTMENT_SCHEDULED
+  OFFER_SENT
+  NEGOTIATING
+  CONTRACT_SIGNED
+  ASSIGNED
+  CLOSED
+  DEAD
+}
+
+enum DealType {
+  PROBATE
+  FORECLOSURE
+  VACANT
+  TAX_DELINQUENT
+  ABSENTEE
+  INHERITED
+  DIVORCE
+  CODE_VIOLATION
+  OTHER
+}
+
+enum DispoStatus {
+  SENT
+  INTERESTED
+  PASSED
+  ASSIGNED
+}
+
+enum ScriptType {
+  COLD_CALL
+  VOICEMAIL
+  TEXT
+  LETTER
+  EMAIL
+  NEGOTIATION
+  BUYER_PITCH
+}
+
+enum SMSStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  DELIVERED
+  REPLIED
+  FAILED
+}
+
+enum SmsDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum ActivityType {
+  SMS_SENT
+  SMS_RECEIVED
+  CALL_LOGGED
+  EMAIL_SENT
+  NOTE
+  STAGE_CHANGE
+  SCRIPT_GENERATED
+  DEAL_SCORED
+}
