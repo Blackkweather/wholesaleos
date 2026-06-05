@@ -36,6 +36,7 @@ import { LeadScoreCard } from "@/components/deals/lead-score-card";
 import { SellerIntelCard } from "@/components/deals/seller-intel-card";
 import { BuyerMatchesCard } from "@/components/deals/buyer-matches-card";
 import { DispositionCard } from "@/components/deals/disposition-card";
+import { DealCommandBar } from "@/components/deals/deal-command-bar";
 import { SkipTracePanel } from "@/components/deals/skip-trace-panel";
 import { NegotiationCopilot } from "@/components/deals/negotiation-copilot";
 import {
@@ -87,6 +88,12 @@ export default function DealDetailPage({
   const [jvLoading, setJvLoading] = React.useState(false);
   const [letterLoading, setLetterLoading] = React.useState(false);
   const [lobLoading, setLobLoading] = React.useState(false);
+  const [tab, setTab] = React.useState("overview");
+
+  const scrollToBuyers = React.useCallback(() => {
+    setTab("overview");
+    setTimeout(() => document.getElementById("buyer-matches")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }, []);
 
   if (isLoading) {
     return (
@@ -361,8 +368,16 @@ export default function DealDetailPage({
         )}
       </Card>
 
+      <DealCommandBar
+        dealId={deal.id}
+        ownerPhone={deal.ownerPhone}
+        ownerEmail={deal.ownerEmail}
+        onGoTo={setTab}
+        onScrollToBuyers={scrollToBuyers}
+      />
+
       {/* Tabs */}
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="negotiate">Negotiate</TabsTrigger>
@@ -381,7 +396,9 @@ export default function DealDetailPage({
             />
             <SellerIntelCard dealId={deal.id} />
             <LeadScoreCard dealId={deal.id} />
-            <BuyerMatchesCard dealId={deal.id} />
+            <div id="buyer-matches">
+              <BuyerMatchesCard dealId={deal.id} />
+            </div>
             <DispositionCard dealId={deal.id} />
             <OverviewTab deal={deal} />
           </div>
