@@ -133,6 +133,15 @@ export async function POST(req: NextRequest) {
         where: { id: nextMsg?.id ?? "" },
         data: { status: "FAILED", error: msg.slice(0, 500) },
       }).catch(() => null);
+
+      // Permanent failures (fake/invalid number) → stop retrying this sequence
+      // forever so it can't waste sends or flag the Twilio account.
+      if (/invalid.*phone|not a valid phone number|21211|21214|21217|21219|21408/i.test(msg)) {
+        await prisma.smsSequence.update({
+          where: { id: seq.id },
+          data: { active: false },
+        }).catch(() => null);
+      }
     }
   }
 

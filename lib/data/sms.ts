@@ -29,6 +29,13 @@ export async function autoStartSequenceForDeal(deal: DealView): Promise<StartSeq
     return { started: false, reason: "no-phone", message: "No seller phone on file — run a skip trace first." };
   }
 
+  // Reject placeholder / invalid numbers (e.g. "987-654-XXXX") before they ever
+  // hit Twilio and waste sends.
+  const digits = deal.ownerPhone.replace(/\D/g, "");
+  if (/x/i.test(deal.ownerPhone) || digits.length < 10) {
+    return { started: false, reason: "no-phone", message: "The phone on file isn't a valid number — run a skip trace for a real one." };
+  }
+
   // Skip if Twilio is not configured
   if (!(await isDbReady())) {
     return { started: false, reason: "no-twilio", message: "Database not ready." };
