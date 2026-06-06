@@ -9,6 +9,7 @@ import { skipTraceAndUpdate } from "@/lib/data/skip-trace";
 import { saveScript, hasScript } from "@/lib/data/scripts";
 import { sendDailyBriefingEmail, isResendConfigured } from "@/lib/resend";
 import { writeBriefing } from "@/lib/data/briefing-store";
+import { runLeadSource } from "@/lib/lead-sources";
 import { apiOk, apiError } from "@/types";
 
 export const runtime = "nodejs";
@@ -60,6 +61,17 @@ export async function POST(req: NextRequest) {
 
     const markets = await getMarkets();
     summary.markets = markets.length;
+
+    // ── Authoritative county leads FIRST (real owners + values from HCAD) ─────
+    // Runs before the slower web scan so it always lands inside the 60s budget.
+    // Best-effort: a failure here never blocks the rest of the scan.
+    try {
+      const r = await runLeadSource("hcad-estate", { city: "Houston", state: "TX", limit: 4 });
+      summary.dealsFound += r.found;
+      summary.dealsSaved += r.saved;
+    } catch (e) {
+      summary.errors.push(`hcad-estate: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     for (const market of markets) {
       if (!market.active) continue;

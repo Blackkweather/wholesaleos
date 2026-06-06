@@ -157,7 +157,7 @@ const TOOLS: GroqTool[] = [
     type: "function",
     function: {
       name: "run_lead_source",
-      description: "Run an advanced lead-source adapter and save verified leads. Sources: hcad-portfolio (landlords with 5+ properties), hcad-absentee (out-of-state owners), tax-delinquent, probate, code-violation, vacant. Use for 'find portfolio landlords', 'pull probate leads', etc.",
+      description: "Run an advanced lead-source adapter and save verified leads. Sources: hcad-estate (estate/heir-owned straight from county records — the BEST free probate source), hcad-portfolio (landlords with 5+ properties), hcad-absentee (out-of-state owners), tax-delinquent, probate, code-violation, vacant. Use for 'pull probate leads' (prefer hcad-estate), 'find portfolio landlords', etc.",
       parameters: { type: "object", properties: { source: { type: "string", description: "adapter id, e.g. hcad-portfolio" } }, required: ["source"] },
     },
   },

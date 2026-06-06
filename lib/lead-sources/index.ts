@@ -1,12 +1,13 @@
 import "server-only";
 import { verifyProperty } from "@/lib/property-data";
 import { createDealsFromScored } from "@/lib/data/deals";
-import { hcadPortfolioAdapter, hcadAbsenteeAdapter } from "./hcad";
+import { hcadPortfolioAdapter, hcadAbsenteeAdapter, hcadEstateAdapter } from "./hcad";
 import { taxDelinquentAdapter, probateAdapter, codeViolationAdapter, vacantAdapter } from "./tavily";
 import type { LeadSourceAdapter, LeadSourceContext } from "./types";
 import type { ScoredDeal } from "@/types";
 
 export const ADAPTERS: LeadSourceAdapter[] = [
+  hcadEstateAdapter,      // authoritative probate signal — strongest free source
   hcadPortfolioAdapter,
   hcadAbsenteeAdapter,
   taxDelinquentAdapter,

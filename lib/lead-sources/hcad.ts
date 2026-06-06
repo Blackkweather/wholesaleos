@@ -125,3 +125,52 @@ export const hcadAbsenteeAdapter: LeadSourceAdapter = {
     return leads;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Estate / heir-owned — owner of record is a deceased person's estate or heirs.
+// The strongest free probate signal: it's written right into the county owner
+// name. Heirs typically want a fast, as-is sale. Excludes "REAL ESTATE" firms
+// and companies, and caps at a wholesale-appropriate value.
+// ---------------------------------------------------------------------------
+
+export const hcadEstateAdapter: LeadSourceAdapter = {
+  id: "hcad-estate",
+  label: "Estate / heir-owned (probate)",
+  kind: "county",
+  async fetch({ limit = 10 }) {
+    const rows = await hcadQuery({
+      where:
+        "(owner_name_1 LIKE '%ESTATE OF%' OR owner_name_1 LIKE '%HEIRS%') " +
+        "AND owner_name_1 NOT LIKE '%REAL ESTATE%' AND owner_name_1 NOT LIKE '%LLC%' " +
+        "AND owner_name_1 NOT LIKE '%LTD%' AND owner_name_1 NOT LIKE '%INC%' " +
+        "AND state_class LIKE 'A%' AND total_market_val > 60000 AND total_market_val < 400000",
+      outFields: OUT_FIELDS,
+      orderByFields: "total_market_val DESC",
+      resultRecordCount: String(Math.min(limit * 3, 60)),
+    });
+    const leads: RawLead[] = [];
+    for (const r of rows) {
+      const f = r.attributes;
+      const addr = siteAddress(f);
+      if (!addr || !f.owner_name_1) continue;
+      const isHeir = /HEIRS/i.test(f.owner_name_1);
+      leads.push({
+        address: addr,
+        city: f.site_city || "Houston",
+        state: "TX",
+        zip: f.site_zip,
+        ownerName: f.owner_name_1,
+        estValue: f.total_market_val,
+        source: "hcad-estate",
+        confidence: 88,
+        motivationIndicators: [
+          isHeir ? "Heir-owned (inherited)" : "Estate-owned (probate)",
+          "Owner of record is deceased — heirs often sell fast & as-is",
+        ],
+        dealType: isHeir ? "INHERITED" : "PROBATE",
+      });
+      if (leads.length >= limit) break;
+    }
+    return leads;
+  },
+};
