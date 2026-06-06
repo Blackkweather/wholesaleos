@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyProperty } from "@/lib/property-data";
 import { skipTrace, isApifyConfigured, type SkipTraceResult } from "@/lib/skipTrace";
+import { getRentcastValue, isRentcastConfigured } from "@/lib/rentcast";
 import { apiOk, apiError } from "@/types";
 
 export const runtime = "nodejs";
@@ -29,20 +30,26 @@ export async function POST(req: Request) {
     }));
   }
 
-  // 2) Contacts via skip trace — time-boxed to 45s so the whole call fits 60s
-  let contacts: SkipTraceResult = { phones: [], emails: [], confidence: 0, source: null };
-  if (isApifyConfigured() && v.ownerName) {
-    const traced = await Promise.race([
-      skipTrace({ ownerName: v.ownerName, address: v.normalizedAddress ?? address, city, state, zip: v.zip ?? undefined }),
-      new Promise<null>((r) => setTimeout(() => r(null), 45000)),
-    ]);
-    if (traced) contacts = traced;
-  }
+  // 2) Contacts (skip trace, time-boxed to 45s) + AVM/comps (RentCast) in parallel
+  const lookupAddr = v.normalizedAddress ?? address;
+  const tracePromise: Promise<SkipTraceResult | null> =
+    isApifyConfigured() && v.ownerName
+      ? Promise.race([
+          skipTrace({ ownerName: v.ownerName, address: lookupAddr, city, state, zip: v.zip ?? undefined }),
+          new Promise<null>((r) => setTimeout(() => r(null), 45000)),
+        ])
+      : Promise.resolve(null);
+
+  const [traced, valuation] = await Promise.all([
+    tracePromise,
+    getRentcastValue(`${lookupAddr}, ${city}, ${state}`),
+  ]);
+  const contacts: SkipTraceResult = traced ?? { phones: [], emails: [], confidence: 0, source: null };
 
   return NextResponse.json(apiOk({
     found: true,
     property: {
-      address: v.normalizedAddress ?? address,
+      address: lookupAddr,
       city,
       state,
       zip: v.zip ?? null,
@@ -53,6 +60,8 @@ export async function POST(req: Request) {
       provider: v.provider ?? null,
     },
     contacts,
+    valuation,
     apifyReady: isApifyConfigured(),
+    rentcastReady: isRentcastConfigured(),
   }));
 }

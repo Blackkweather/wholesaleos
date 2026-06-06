@@ -21,7 +21,12 @@ interface LookupResult {
     mailAddress: string | null; provider: string | null;
   };
   contacts?: { phones: TracedPhone[]; emails: string[]; confidence: number; source: string | null };
+  valuation?: {
+    avm?: number; avmLow?: number; avmHigh?: number;
+    comps: { address?: string; price?: number; sqft?: number; beds?: number; baths?: number; distanceMi?: number }[];
+  } | null;
   apifyReady?: boolean;
+  rentcastReady?: boolean;
 }
 
 export default function LookupPage() {
@@ -82,6 +87,7 @@ export default function LookupPage() {
 
   const prop = result?.property;
   const contacts = result?.contacts;
+  const val = result?.valuation;
 
   return (
     <div className="space-y-6">
@@ -142,12 +148,19 @@ export default function LookupPage() {
               </div>
               <div>
                 <div className="text-xs uppercase tracking-wider text-muted-foreground">County value</div>
-                <div className="font-medium text-[#00ff87]">{prop.estValue ? formatCurrency(prop.estValue) : "—"}</div>
+                <div className="font-medium">{prop.estValue ? formatCurrency(prop.estValue) : "—"}</div>
               </div>
-              <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Source</div>
-                <div className="font-medium">{prop.provider ?? "county"}</div>
-              </div>
+              {val?.avm != null ? (
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Market value (AVM)</div>
+                  <div className="font-medium text-[#00ff87]">{formatCurrency(val.avm)}</div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Source</div>
+                  <div className="font-medium">{prop.provider ?? "county"}</div>
+                </div>
+              )}
               {prop.mailAddress && (
                 <div className="col-span-2 sm:col-span-3">
                   <div className="text-xs uppercase tracking-wider text-muted-foreground">Owner mailing address</div>
@@ -156,6 +169,36 @@ export default function LookupPage() {
               )}
             </div>
           </Card>
+
+          {/* Sold comps (RentCast) */}
+          {val && val.comps.length > 0 && (
+            <Card className="p-5">
+              <h3 className="mb-3 flex flex-wrap items-center gap-2 font-heading text-lg tracking-wide">
+                <Home className="h-5 w-5 text-primary" /> Recent sold comps
+                {val.avmLow != null && val.avmHigh != null && (
+                  <span className="text-sm font-normal text-muted-foreground">AVM range {formatCurrency(val.avmLow)}–{formatCurrency(val.avmHigh)}</span>
+                )}
+              </h3>
+              <div className="space-y-2">
+                {val.comps.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{c.address ?? "Comparable sale"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[
+                          c.beds != null ? `${c.beds} bd` : null,
+                          c.baths != null ? `${c.baths} ba` : null,
+                          c.sqft != null ? `${c.sqft.toLocaleString()} sqft` : null,
+                          c.distanceMi != null ? `${c.distanceMi.toFixed(1)} mi` : null,
+                        ].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                    {c.price != null && <span className="shrink-0 font-heading text-[#00ff87]">{formatCurrency(c.price)}</span>}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* Contacts */}
           <Card className="p-5">
