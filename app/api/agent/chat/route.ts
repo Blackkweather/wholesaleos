@@ -14,6 +14,7 @@ import { getFollowUpQueue } from "@/lib/data/follow-ups";
 import { scoreDealHybrid } from "@/lib/data/scoring";
 import { runLeadSource } from "@/lib/lead-sources";
 import { sendDealToBuyers } from "@/lib/data/disposition";
+import { tavilySearch, isTavilyConfigured } from "@/lib/tavily";
 import { apiOk, apiError } from "@/types";
 
 export const runtime = "nodejs";
@@ -151,6 +152,36 @@ const TOOLS: GroqTool[] = [
       name: "best_buyers_for_deal",
       description: "Rank the best cash-buyer matches for a deal with confidence %. Use for 'which buyers should get {address}', 'who would buy this'.",
       parameters: { type: "object", properties: { dealQuery: { type: "string", description: "Part of the deal's street address" } }, required: ["dealQuery"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Search the web for real-time information: market conditions, neighborhood data, recent home sales, foreclosure news, property tax info, investor activity, contractor costs, or anything else you need to research. Use for 'what are homes selling for in X', 'research this neighborhood', 'find cash buyers in Houston', 'what's the average repair cost for Y', etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The search query, e.g. 'average home prices Cypress TX 2025' or 'Houston wholesale real estate investors'" },
+          depth: { type: "string", enum: ["basic", "advanced"], description: "basic = fast/simple, advanced = deeper research (default)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "research_property",
+      description: "Deep-research a specific address or neighborhood: recent sales, flood zone, school ratings, crime, walkability, market trends, investor activity. Combines multiple searches into one report.",
+      parameters: {
+        type: "object",
+        properties: {
+          address: { type: "string", description: "Full property address, e.g. '8726 Arch Rock Dr, Cypress TX 77433'" },
+          focus: { type: "string", description: "Optional focus area: 'comps', 'neighborhood', 'flood', 'investors', 'repairs'" },
+        },
+        required: ["address"],
+      },
     },
   },
   {
@@ -321,6 +352,49 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<str
       const matches = await matchBuyersForDealScored(deal);
       return JSON.stringify({ deal: deal.address, matches: matches.slice(0, 8).map((m) => ({ buyer: m.buyer.company || m.buyer.name, confidence: `${m.matchScore}%`, phone: m.buyer.phone, reasons: m.reasons })) });
     }
+    case "web_search": {
+      if (!isTavilyConfigured()) return JSON.stringify({ error: "Web search not configured (TAVILY_API_KEY missing)." });
+      const query = String(args.query ?? "");
+      if (!query) return JSON.stringify({ error: "query is required" });
+      const depth = args.depth === "basic" ? "basic" : "advanced";
+      try {
+        const results = await tavilySearch(query, { maxResults: 6, searchDepth: depth });
+        return JSON.stringify({
+          query,
+          results: results.slice(0, 6).map(r => ({ title: r.title, url: r.url, summary: r.content.slice(0, 400) })),
+        });
+      } catch (e) {
+        return JSON.stringify({ error: e instanceof Error ? e.message : "Search failed" });
+      }
+    }
+    case "research_property": {
+      if (!isTavilyConfigured()) return JSON.stringify({ error: "Web search not configured (TAVILY_API_KEY missing)." });
+      const addr = String(args.address ?? "");
+      const focus = String(args.focus ?? "");
+      const queries = focus === "comps"
+        ? [`recent home sales near ${addr}`, `home prices ${addr} 2025`]
+        : focus === "flood"
+        ? [`flood zone ${addr}`, `flood risk ${addr}`]
+        : focus === "investors"
+        ? [`cash buyers real estate investors ${addr.split(",").slice(-2).join(",").trim()}`, `wholesale real estate ${addr.split(",")[1]?.trim() ?? addr}`]
+        : focus === "repairs"
+        ? [`average repair costs house renovation Houston TX 2025`, `contractor costs ${addr.split(",")[1]?.trim() ?? "Houston TX"}`]
+        : [
+            `${addr} neighborhood home values 2025`,
+            `recent sales near ${addr}`,
+            `${addr.split(",").slice(1).join(",").trim()} real estate market trends`,
+          ];
+      try {
+        const allResults: { title: string; url: string; summary: string }[] = [];
+        for (const q of queries) {
+          const r = await tavilySearch(q, { maxResults: 3, searchDepth: "advanced" });
+          allResults.push(...r.slice(0, 3).map(x => ({ title: x.title, url: x.url, summary: x.content.slice(0, 300) })));
+        }
+        return JSON.stringify({ address: addr, focus: focus || "general", results: allResults.slice(0, 8) });
+      } catch (e) {
+        return JSON.stringify({ error: e instanceof Error ? e.message : "Research failed" });
+      }
+    }
     case "run_lead_source": {
       const markets = await getMarkets();
       const market = markets.find((m) => m.active) ?? markets[0];
@@ -348,6 +422,7 @@ RULES:
 - You MUST NOT contact SELLERS. All seller outreach (calling/texting/emailing a property owner) is human-approved from the deal page — if they want to reach a seller, tell them to open the deal and use the Call / Text buttons.
 - If the user asks what to do, give a clear next action based on the data (e.g. "Open 14027 Henry Rd and send the JV pack to a buyer — it matches 3 of yours").
 - If there's no data yet, tell them to run a scan from the Find Deals page.
+- You CAN search the web. Use web_search for market data, news, or any question needing real-time info. Use research_property when the user asks about a specific address or neighborhood — it runs multiple searches and synthesizes comps, flood risk, school ratings, investor demand, etc. Always cite what you found.
 
 Keep replies under ~120 words unless they ask for detail.`;
 
