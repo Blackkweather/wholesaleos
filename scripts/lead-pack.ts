@@ -41,7 +41,7 @@ function extract(items: unknown): { phones: string[]; emails: string[] } {
 
 async function hcad(where: string, outFields: string, count: number) {
   const qs = new URLSearchParams({ f: "json", returnGeometry: "false", where, outFields, orderByFields: "total_market_val DESC", resultRecordCount: String(count) });
-  const r = await fetch(`${HCAD}?${qs}`, { signal: AbortSignal.timeout(20000) });
+  const r = await fetch(`${HCAD}?${qs}`, { signal: AbortSignal.timeout(40000) });
   const j = (await r.json()) as { features?: { attributes: Record<string, unknown> }[] };
   return j.features ?? [];
 }
