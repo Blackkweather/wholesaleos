@@ -5,7 +5,7 @@ import {
   type GroqMessage,
   type GroqTool,
 } from "@/lib/groq";
-import { listDeals, dealStageCounts, createDealsFromScored } from "@/lib/data/deals";
+import { listDeals, dealStageCounts, createDealsFromScored, updateDeal } from "@/lib/data/deals";
 import { listBuyers, matchBuyersForDeal, matchBuyersForDealScored } from "@/lib/data/buyers";
 import { getMarkets } from "@/lib/data/markets";
 import { findDeals, isClaudeConfigured } from "@/lib/claude";
@@ -15,6 +15,8 @@ import { scoreDealHybrid } from "@/lib/data/scoring";
 import { runLeadSource } from "@/lib/lead-sources";
 import { sendDealToBuyers } from "@/lib/data/disposition";
 import { tavilySearch, isTavilyConfigured } from "@/lib/tavily";
+import { computeMao, getNegotiationPlaybook } from "@/lib/data/negotiation";
+import { groqGenerate } from "@/lib/groq";
 import { apiOk, apiError } from "@/types";
 
 export const runtime = "nodejs";
@@ -181,6 +183,97 @@ const TOOLS: GroqTool[] = [
           focus: { type: "string", description: "Optional focus area: 'comps', 'neighborhood', 'flood', 'investors', 'repairs'" },
         },
         required: ["address"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_deal_stage",
+      description: "Move a deal to a new pipeline stage. Use when the user says 'move X to negotiating', 'mark X as contracted', 'kill X', 'X is dead', 'I signed a contract on X', etc. Valid stages: LEAD, CONTACTED, NEGOTIATING, CONTRACT, CLOSED, DEAD.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+          stage: { type: "string", enum: ["LEAD", "CONTACTED", "NEGOTIATING", "CONTRACT", "CLOSED", "DEAD"], description: "New pipeline stage" },
+          note: { type: "string", description: "Optional note to log with this stage change" },
+        },
+        required: ["dealQuery", "stage"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_deal_note",
+      description: "Add or update a note on a deal. Use when the user says 'note on X: ...', 'log that X ...', 'add to X: ...', 'update X notes'.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+          note: { type: "string", description: "The note text to append to this deal" },
+        },
+        required: ["dealQuery", "note"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calculate_offer",
+      description: "Calculate the MAO (max allowable offer), opening offer, and assignment fee breakdown for a deal. Use when the user asks 'what should I offer on X', 'run the numbers on X', 'what's the MAO for X', 'calculate offer'.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+        },
+        required: ["dealQuery"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_negotiation_playbook",
+      description: "Get a full negotiation playbook for a deal: opening offer, MAO, counter-offer ladder, talking points, and objection handlers. Use when the user is about to call/text a seller or wants to know how to negotiate.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+        },
+        required: ["dealQuery"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "draft_seller_message",
+      description: "Write a message the user should send to a seller — first contact, follow-up, or response. The user copies it and sends manually (TCPA compliance). Use for 'what should I say to X', 'write me a message for X', 'draft a text for X', 'how should I respond to X saying Y'.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+          messageType: { type: "string", enum: ["first_contact", "follow_up", "response"], description: "first_contact = cold outreach, follow_up = no reply yet, response = seller said something" },
+          sellerSaid: { type: "string", description: "What the seller said (required for messageType=response)" },
+          channel: { type: "string", enum: ["sms", "email", "whatsapp", "call_script"], description: "Channel to write for (default: sms)" },
+        },
+        required: ["dealQuery", "messageType"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "schedule_follow_up",
+      description: "Set a follow-up reminder for a deal X days from now. Use when user says 'remind me about X in 3 days', 'follow up with X next week', 'check back with X on Friday'.",
+      parameters: {
+        type: "object",
+        properties: {
+          dealQuery: { type: "string", description: "Part of the deal's street address" },
+          daysFromNow: { type: "number", description: "How many days until the follow-up (e.g. 3, 7, 14)" },
+        },
+        required: ["dealQuery", "daysFromNow"],
       },
     },
   },
@@ -395,6 +488,89 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<str
         return JSON.stringify({ error: e instanceof Error ? e.message : "Research failed" });
       }
     }
+    case "move_deal_stage": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const newStage = String(args.stage);
+      const updated = await updateDeal(deal.id, { stage: newStage as never, notes: args.note ? `${deal.notes ?? ""}\n[Stage → ${newStage}] ${String(args.note)}`.trim() : deal.notes ?? undefined });
+      return JSON.stringify({ success: Boolean(updated), address: deal.address, oldStage: deal.stage, newStage, message: updated ? `Moved ${deal.address} from ${deal.stage} → ${newStage}.` : "Update failed." });
+    }
+    case "add_deal_note": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const note = String(args.note ?? "");
+      const ts = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const existing = (deal.notes ?? "").trim();
+      const newNotes = existing ? `${existing}\n[${ts}] ${note}` : `[${ts}] ${note}`;
+      const updated = await updateDeal(deal.id, { notes: newNotes });
+      return JSON.stringify({ success: Boolean(updated), address: deal.address, noteAdded: note });
+    }
+    case "calculate_offer": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const mao = computeMao(deal);
+      const opening = mao != null ? Math.round(mao * 0.85) : null;
+      return JSON.stringify({
+        address: deal.address,
+        arv: money(deal.arv), repairs: money(deal.repairCost),
+        assignmentFee: money(deal.assignmentFee ?? 10000),
+        mao: money(mao), openingOffer: money(opening),
+        estProfit: money(deal.profit),
+        formula: `ARV×70% − Repairs − Assignment Fee = MAO`,
+        verdict: mao && deal.offerPrice && deal.offerPrice <= mao ? "✅ Current offer is at or under MAO" : mao && deal.offerPrice && deal.offerPrice > mao ? "⚠️ Current offer EXCEEDS MAO" : "No offer set yet",
+      });
+    }
+    case "get_negotiation_playbook": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const playbook = await getNegotiationPlaybook(deal);
+      return JSON.stringify({
+        address: deal.address, owner: deal.ownerName,
+        mao: money(playbook.mao), openingOffer: money(playbook.openingOffer),
+        counterLadder: playbook.counterLadder.map(money),
+        talkingPoints: playbook.talkingPoints,
+        objectionHandlers: playbook.objectionHandlers,
+        summary: playbook.summary,
+      });
+    }
+    case "draft_seller_message": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const mao = computeMao(deal);
+      const type = String(args.messageType ?? "first_contact");
+      const channel = String(args.channel ?? "sms");
+      const sellerSaid = args.sellerSaid ? String(args.sellerSaid) : "";
+      const isCall = channel === "call_script";
+      const prompt = type === "response" && sellerSaid
+        ? `You are a real estate wholesaler drafting a ${channel} reply to a motivated seller.
+Property: ${deal.address}, ${deal.city ?? "Houston TX"}. Seller: ${deal.ownerName ?? "owner"}. Situation: ${deal.situation ?? "motivated seller"}.
+Your MAX offer (never go above): ${money(mao)}.
+The seller just said: "${sellerSaid}"
+Write ONLY the exact ${isCall ? "words to say on the phone" : channel + " message"} — natural, brief (2-4 sentences), warm but firm. No preamble, no explanation.`
+        : type === "follow_up"
+        ? `You are a real estate wholesaler writing a ${channel} follow-up to a seller who hasn't replied yet.
+Property: ${deal.address}, ${deal.city ?? "Houston TX"}. Seller: ${deal.ownerName ?? "owner"}. Situation: ${deal.situation ?? "motivated seller"}.
+Keep it very short (1-2 sentences), friendly, non-pushy. Reference the property subtly. No preamble.`
+        : `You are a real estate wholesaler writing a first-contact ${channel} to a homeowner.
+Property: ${deal.address}, ${deal.city ?? "Houston TX"}. Owner: ${deal.ownerName ?? "owner"}. Situation: ${deal.situation ?? "motivated seller"}.
+Write a brief (2-3 sentence) ${isCall ? "phone script opener" : channel + " message"}: introduce yourself, mention you buy houses as-is for cash, ask if they'd be open to an offer. Warm, personal, not spammy. No preamble.`;
+      const draft = await groqGenerate({ prompt, maxTokens: 200, temperature: 0.7 });
+      return JSON.stringify({ address: deal.address, owner: deal.ownerName, channel, messageType: type, draft: draft.trim(), important: "This is a DRAFT for you to review and send manually. Do NOT auto-send." });
+    }
+    case "schedule_follow_up": {
+      const q = String(args.dealQuery ?? "").toLowerCase();
+      const deal = (await listDeals()).find((d) => d.address.toLowerCase().includes(q));
+      if (!deal) return JSON.stringify({ found: false, message: `No deal matching "${args.dealQuery}"` });
+      const days = Number(args.daysFromNow ?? 3);
+      const followUpDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      const updated = await updateDeal(deal.id, { nextFollowUpAt: followUpDate.toISOString() });
+      return JSON.stringify({ success: Boolean(updated), address: deal.address, followUpScheduled: followUpDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }), days });
+    }
     case "run_lead_source": {
       const markets = await getMarkets();
       const market = markets.find((m) => m.active) ?? markets[0];
@@ -406,25 +582,37 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<str
   }
 }
 
-const SYSTEM_PROMPT = `You are the WholesaleOS Orchestrator — the user's AI command center for their solo real-estate wholesaling business in Houston, TX.
+const SYSTEM_PROMPT = `You are the WholesaleOS Orchestrator — the AI engine running a solo real-estate wholesaling business in Houston, TX. You don't just report — you DO the work.
 
-Your job: keep the user informed and help them decide what to do next. Be concise, direct, and conversational — like a sharp operations partner, not a chatbot. Short paragraphs, plain language.
+Be concise, direct, action-oriented. Like a sharp ops partner, not a chatbot. Short paragraphs, plain language.
+
+WHAT YOU CAN DO (use these tools aggressively):
+- get_pipeline_summary / list_hot_leads — status and hot leads
+- find_deal — look up any deal by address fragment
+- move_deal_stage — move deals through the pipeline (LEAD → CONTACTED → NEGOTIATING → CONTRACT → CLOSED/DEAD)
+- add_deal_note — log notes on any deal
+- calculate_offer — run MAO math for any deal
+- get_negotiation_playbook — full strategy: opening offer, counter ladder, objection scripts
+- draft_seller_message — write the exact message for the user to send (sms/email/call script)
+- schedule_follow_up — set a follow-up reminder X days out
+- match_buyers_for_deal / best_buyers_for_deal — find who wants a deal
+- send_deal_to_buyers — blast matched buyers (confirm-first: preview first, send only after user says yes)
+- run_deal_scan — find new motivated-seller deals (~1 min)
+- run_lead_source — pull probate/absentee/portfolio/tax-delinquent leads from HCAD
+- get_analytics / most_likely_to_close / overdue_followups / explain_lead_score — data and prioritization
+- web_search — real-time market data, news, trends
+- research_property — deep multi-search on any address: comps, flood zone, schools, investor demand
 
 RULES:
 - ALWAYS call a tool to get real data before stating numbers. Never invent deals, buyers, prices, or counts.
-- When the user asks "what's going on" or for status, call get_pipeline_summary first.
-- When they ask about a specific property, call find_deal.
-- When they ask who would buy a deal, call match_buyers_for_deal.
-- When they ask to scan, find more deals, or get new leads, call run_deal_scan. It takes ~1 minute and searches public listings only. Briefly mention you're running it, then report what came back (new deals added, how many were already in the pipeline). If few or none are new, be honest that free public sources have limited fresh inventory and suggest the real lever is better lead data or working the deals already in the pipeline.
-- For money questions (revenue, best source, ZIP spreads, conversion rates) call get_analytics. For "what should I work" call most_likely_to_close. For "who's overdue" call overdue_followups. To justify a score call explain_lead_score. For buyer recommendations call best_buyers_for_deal. To pull a specific lead type (portfolio landlords, probate, tax-delinquent, etc.) call run_lead_source.
-- You can report, summarize, explain, recommend, RUN SCANS (any city — pass city/state to run_deal_scan, e.g. "find deals in Spring TX"), RUN LEAD SOURCES, and SEND A DEAL TO THE USER'S OWN CASH BUYERS.
-- SENDING TO BUYERS IS CONFIRM-FIRST: when asked to send/blast a deal to buyers, FIRST call send_deal_to_buyers with confirm=false to preview exactly who would receive it, list the names + count for the user, and ask them to confirm. Only call again with confirm=true AFTER they reply yes. Buyers are the user's own consented list, so this is allowed.
-- You MUST NOT contact SELLERS. All seller outreach (calling/texting/emailing a property owner) is human-approved from the deal page — if they want to reach a seller, tell them to open the deal and use the Call / Text buttons.
-- If the user asks what to do, give a clear next action based on the data (e.g. "Open 14027 Henry Rd and send the JV pack to a buyer — it matches 3 of yours").
-- If there's no data yet, tell them to run a scan from the Find Deals page.
-- You CAN search the web. Use web_search for market data, news, or any question needing real-time info. Use research_property when the user asks about a specific address or neighborhood — it runs multiple searches and synthesizes comps, flood risk, school ratings, investor demand, etc. Always cite what you found.
+- For status: call get_pipeline_summary. For specific property: call find_deal first, then act.
+- For "what should I say to X": call draft_seller_message. For "how to negotiate with X": call get_negotiation_playbook. For "move X to Y stage": call move_deal_stage. For "remind me about X": call schedule_follow_up.
+- SENDING TO BUYERS IS CONFIRM-FIRST: preview with confirm=false, show names, ask user to confirm, then send with confirm=true.
+- You MUST NOT contact SELLERS yourself. draft_seller_message only writes a draft — the USER sends it. Never call/text/email a seller on their behalf.
+- If overdue follow-ups exist, proactively mention them.
+- Chain tools when needed: find_deal → calculate_offer → get_negotiation_playbook in one response if the user asks "prep me for a call with X".
 
-Keep replies under ~120 words unless they ask for detail.`;
+Keep replies under ~150 words unless they ask for detail. Lead with the action taken, then explain.`;
 
 export async function POST(req: NextRequest) {
   if (!isGroqConfigured()) {
@@ -448,8 +636,8 @@ export async function POST(req: NextRequest) {
   ];
 
   try {
-    // Tool-calling loop — up to 4 rounds
-    for (let round = 0; round < 4; round++) {
+    // Tool-calling loop — up to 6 rounds (allows chaining: find → calc → playbook in one shot)
+    for (let round = 0; round < 6; round++) {
       const msg = await groqChat(convo, TOOLS);
 
       if (msg.tool_calls && msg.tool_calls.length > 0) {
