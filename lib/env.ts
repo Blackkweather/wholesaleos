@@ -37,6 +37,12 @@ const schema = z.object({
 
   ENCRYPTION_KEY: z.string().optional(),
 
+  // FreeLLMAPI — self-hosted multi-provider proxy (16+ free LLMs, auto-failover)
+  // Run locally: git clone https://github.com/tashfeenahmed/freellmapi && docker compose up -d
+  // Expose publicly via tunnel so Vercel can reach it (same tunnel as Twilio webhooks)
+  FREELLMAPI_URL: z.string().optional(),   // e.g. https://your-tunnel.trycloudflare.com
+  FREELLMAPI_KEY: z.string().optional(),   // bearer token from freellmapi dashboard
+
   VAPI_API_KEY: z.string().optional(),
   VAPI_PHONE_NUMBER_ID: z.string().optional(),
   VAPI_TWILIO_PHONE_NUMBER_ID: z.string().optional(),
@@ -72,6 +78,7 @@ export const features = {
   anthropic: Boolean(env.ANTHROPIC_API_KEY),
   gemini: Boolean(env.GEMINI_API_KEY),
   groq: Boolean(env.GROQ_API_KEY),
+  freellmapi: Boolean(env.FREELLMAPI_URL && env.FREELLMAPI_KEY),
   tavily: Boolean(env.TAVILY_API_KEY),
   propertyApi: Boolean(env.ESTATED_API_KEY || env.REGRID_API_KEY),
   apify: Boolean(env.APIFY_API_KEY),
