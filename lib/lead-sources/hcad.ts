@@ -127,6 +127,56 @@ export const hcadAbsenteeAdapter: LeadSourceAdapter = {
 };
 
 // ---------------------------------------------------------------------------
+// Distressed + absentee combo — pre-1975 improvements, out-of-state owner, value
+// $80k-$320k. Old house + remote owner = highest-motivation absentee segment.
+// ---------------------------------------------------------------------------
+
+export const hcadDistressedAdapter: LeadSourceAdapter = {
+  id: "hcad-distressed",
+  label: "Pre-1975 homes, absentee owner",
+  kind: "county",
+  async fetch({ limit = 10 }) {
+    const rows = await hcadQuery({
+      where:
+        "mail_state<>'TX' AND mail_state<>'' AND owner_name_1<>'' " +
+        "AND owner_name_1 NOT LIKE '%LLC%' AND owner_name_1 NOT LIKE '%LTD%' " +
+        "AND owner_name_1 NOT LIKE '%INC%' AND owner_name_1 NOT LIKE '%TRUST%' " +
+        "AND owner_name_1 NOT LIKE '%ESTATE%' " +
+        "AND state_class LIKE 'A%' AND yr_impr > 0 AND yr_impr < 1976 " +
+        "AND total_market_val > 80000 AND total_market_val < 320000",
+      outFields: OUT_FIELDS + ",yr_impr",
+      orderByFields: "total_market_val DESC",
+      resultRecordCount: String(Math.min(limit * 4, 80)),
+    });
+    const leads: RawLead[] = [];
+    for (const r of rows) {
+      const f = r.attributes as HcadFields & { yr_impr?: number };
+      const addr = siteAddress(f);
+      if (!addr || !f.owner_name_1) continue;
+      const yr = f.yr_impr ?? 0;
+      leads.push({
+        address: addr,
+        city: f.site_city || "Houston",
+        state: "TX",
+        zip: f.site_zip,
+        ownerName: f.owner_name_1,
+        estValue: f.total_market_val,
+        source: "hcad-distressed",
+        confidence: 80,
+        motivationIndicators: [
+          `${yr} home — likely needs work`,
+          `Out-of-state owner (${f.mail_city}, ${f.mail_state})`,
+          "Absentee + aging property = classic tired landlord",
+        ],
+        dealType: "ABSENTEE",
+      });
+      if (leads.length >= limit) break;
+    }
+    return leads;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Estate / heir-owned — owner of record is a deceased person's estate or heirs.
 // The strongest free probate signal: it's written right into the county owner
 // name. Heirs typically want a fast, as-is sale. Excludes "REAL ESTATE" firms

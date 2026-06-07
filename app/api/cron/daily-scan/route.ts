@@ -64,13 +64,15 @@ export async function POST(req: NextRequest) {
 
     // ── Authoritative county leads FIRST (real owners + values from HCAD) ─────
     // Runs before the slower web scan so it always lands inside the 60s budget.
-    // Best-effort: a failure here never blocks the rest of the scan.
-    try {
-      const r = await runLeadSource("hcad-estate", { city: "Houston", state: "TX", limit: 4 });
-      summary.dealsFound += r.found;
-      summary.dealsSaved += r.saved;
-    } catch (e) {
-      summary.errors.push(`hcad-estate: ${e instanceof Error ? e.message : String(e)}`);
+    // Best-effort: failures here never block the rest of the scan.
+    for (const srcId of ["hcad-estate", "hcad-distressed"] as const) {
+      try {
+        const r = await runLeadSource(srcId, { city: "Houston", state: "TX", limit: 4 });
+        summary.dealsFound += r.found;
+        summary.dealsSaved += r.saved;
+      } catch (e) {
+        summary.errors.push(`${srcId}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     for (const market of markets) {
