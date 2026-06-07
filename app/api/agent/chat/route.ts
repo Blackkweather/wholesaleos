@@ -365,7 +365,7 @@ export async function POST(req: NextRequest) {
 
   const history = (incoming.messages ?? [])
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(-12); // keep last 12 turns for context
+    .slice(-8); // keep last 8 turns — enough context, fewer tokens = stays under 30k TPM
 
   const convo: GroqMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
