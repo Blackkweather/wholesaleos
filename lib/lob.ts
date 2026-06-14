@@ -1,5 +1,9 @@
 import "server-only";
 import { env, features } from "./env";
+import { checkAndIncr } from "./reliability/budget";
+import { withBreaker } from "./reliability/breaker";
+import { withIdempotency } from "./reliability/idempotency";
+import { canSend, type SendContext } from "./compliance/guard";
 
 const LOB_BASE = "https://api.lob.com/v1";
 
@@ -31,9 +35,30 @@ export interface LobResult {
 }
 
 /** Send a physical letter via Lob (printed + mailed from the US). */
-export async function sendLetterViaLob(to: MailAddress, html: string, description: string): Promise<LobResult> {
+export async function sendLetterViaLob(
+  to: MailAddress,
+  html: string,
+  description: string,
+  idempotencyKey?: string,
+  compliance?: SendContext,
+): Promise<LobResult> {
   if (!isLobConfigured()) throw new Error("LOB_NOT_CONFIGURED");
 
+  // Compliance gate when context is provided (cold mail is the autonomous channel).
+  if (compliance) {
+    const gate = await canSend("MAIL", to.line1, compliance);
+    if (!gate.allow) throw new Error(`Blocked by compliance: ${gate.reason}`);
+  }
+
+  // Killswitch + daily MAIL budget. Block → throw (Lob's existing contract).
+  await checkAndIncr("MAIL", 80, "lob");
+
+  const send = (): Promise<LobResult> => withBreaker("lob", () => sendLetterRaw(to, html, description));
+  if (idempotencyKey) return withIdempotency(`mail:${idempotencyKey}`, send);
+  return send();
+}
+
+async function sendLetterRaw(to: MailAddress, html: string, description: string): Promise<LobResult> {
   const from: MailAddress = {
     name: env.LOB_FROM_NAME ?? "Acquisitions",
     line1: env.LOB_FROM_LINE1!,

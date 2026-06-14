@@ -53,6 +53,7 @@ function scoredToView(
     notes: null,
     hot: false,
     optedOut: false,
+    autoActBlocked: false,
     nextFollowUpAt: null,
     expectedProfit: null,
     actualProfit: null,

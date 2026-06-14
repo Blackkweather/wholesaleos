@@ -6,6 +6,16 @@ import { MAO_ARV_MULTIPLIER, STAGE_TIMESTAMP, type StageKey } from "@/constants/
 import type { DealView, ScoredDeal, NewDealInput, DealContext } from "@/types";
 import type { Deal, Stage, Prisma } from "@prisma/client";
 
+/** Best-effort event emission to the Inngest bus (never blocks DB work). */
+async function emitDealEvent(name: "lead.created" | "deal.contracted" | "deal.closed", dealId: string): Promise<void> {
+  try {
+    const { inngest } = await import("@/inngest/client");
+    await inngest.send({ name, data: { dealId } });
+  } catch {
+    /* event bus best-effort */
+  }
+}
+
 /** Map a stored deal to the lightweight context AI generators expect. */
 export function dealViewToContext(d: DealView): DealContext {
   return {
@@ -55,6 +65,7 @@ function serialize(d: Deal): DealView {
     notes: d.notes,
     hot: d.hot,
     optedOut: d.optedOut,
+    autoActBlocked: d.autoActBlocked,
     nextFollowUpAt: d.nextFollowUpAt ? d.nextFollowUpAt.toISOString() : null,
     dateContacted: d.dateContacted ? d.dateContacted.toISOString() : null,
     firstResponseDate: d.firstResponseDate ? d.firstResponseDate.toISOString() : null,
@@ -142,7 +153,9 @@ export async function createDealsFromScored(
     const created = await prisma.$transaction(
       fresh.map((s) => prisma.deal.create({ data: scoredToCreate(s) })),
     );
-    return created.map(serialize);
+    const views = created.map(serialize);
+    for (const v of views) void emitDealEvent("lead.created", v.id);
+    return views;
   }
   return demoDealStore.createMany(items);
 }
@@ -186,6 +199,7 @@ export interface DealPatch {
   stage?: Stage;
   notes?: string;
   hot?: boolean;
+  autoActBlocked?: boolean;
   nextFollowUpAt?: string | null;
   ownerName?: string;
   ownerPhone?: string;
@@ -233,6 +247,9 @@ export async function updateDeal(
           ...tsPatch,
         },
       });
+      // Reactive automation: fire lifecycle events on the gated transitions.
+      if (patch.stage === "CONTRACT_SIGNED") void emitDealEvent("deal.contracted", id);
+      else if (patch.stage === "CLOSED") void emitDealEvent("deal.closed", id);
       return serialize(d);
     } catch {
       return null;

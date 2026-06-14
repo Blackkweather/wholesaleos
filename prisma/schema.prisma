@@ -158,6 +158,7 @@ model Deal {
 
   hot            Boolean   @default(false)
   optedOut       Boolean   @default(false)
+  autoActBlocked Boolean   @default(false) // set by the Data Confidence gate
   nextFollowUpAt DateTime?
 
   // Lifecycle timestamps (date_found = createdAt). Set automatically on stage change.
@@ -179,12 +180,188 @@ model Deal {
   activities    Activity[]
   sequences     SmsSequence[]
   buyerOutreach DealBuyer[]
+  estimates     Estimate[]
+  outcome       Outcome?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId, stage])
   @@index([userId, createdAt])
+}
+
+// ----------------------------------------------------------------------------
+// Data Confidence Layer (Phase 1)
+// ----------------------------------------------------------------------------
+
+/// A point estimate + confidence interval for one measurable quantity on a deal.
+model Estimate {
+  id         String   @id @default(cuid())
+  dealId     String
+  deal       Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  kind       String // ARV | REPAIR | OFFER | SCORE | MATCH
+  point      Float
+  ciLow      Float
+  ciHigh     Float
+  confidence Float // 0..1
+  compCount  Int      @default(0)
+  sources    Json // attribution: [{ source, value, weight }]
+  modelVer   String
+  createdAt  DateTime @default(now())
+
+  @@index([dealId, kind])
+  @@index([dealId, createdAt])
+}
+
+/// Realized result for a deal — the actuals that calibration compares against.
+model Outcome {
+  id           String   @id @default(cuid())
+  dealId       String   @unique
+  deal         Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  marketId     String?
+  predictedArv Float?
+  actualSale   Float?
+  predictedFee Float?
+  actualFee    Float?
+  contracted   Boolean  @default(false)
+  closed       Boolean  @default(false)
+  daysToClose  Int?
+  createdAt    DateTime @default(now())
+
+  @@index([marketId, createdAt])
+}
+
+/// Rolling prediction-error aggregate per market + estimate kind. Drift = stop.
+model Calibration {
+  id        String   @id @default(cuid())
+  marketId  String
+  kind      String // ARV | REPAIR
+  mape      Float // rolling mean absolute percentage error
+  sampleN   Int
+  drift     Boolean  @default(false)
+  windowEnd DateTime @default(now())
+
+  @@unique([marketId, kind])
+  @@index([marketId, kind])
+}
+
+// ----------------------------------------------------------------------------
+// Reliability Layer (Phase 2)
+// ----------------------------------------------------------------------------
+
+/// Durable record of guarded spend, for audit + reconciliation.
+model SpendLedger {
+  id        String   @id @default(cuid())
+  orgId     String
+  category  String // AI | SMS | MAIL | DATA | EMAIL
+  costCents Int
+  ref       String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, category, createdAt])
+}
+
+/// Captured terminal failure of an event-driven execution, with replay support.
+model DeadLetter {
+  id        String   @id @default(cuid())
+  event     String
+  payload   Json
+  error     String
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([event, createdAt])
+}
+
+// ----------------------------------------------------------------------------
+// Compliance Layer (Phase 3)
+// ----------------------------------------------------------------------------
+
+/// Consent ledger with provenance. Latest row per contact+channel is authoritative.
+model Consent {
+  id        String   @id @default(cuid())
+  contact   String // normalized phone (digits) or lowercased email
+  channel   String // SMS | EMAIL | CALL
+  status    String // GRANTED | REVOKED
+  method    String // inbound_reply | web_optin | imported_proof | stop_keyword | manual
+  proof     Json?
+  createdAt DateTime @default(now())
+
+  @@index([contact, channel])
+  @@index([createdAt])
+}
+
+/// Do-Not-Call list (phone contacts).
+model DncEntry {
+  id        String   @id @default(cuid())
+  contact   String   @unique // normalized phone (digits)
+  scope     String // FEDERAL | STATE | INTERNAL
+  createdAt DateTime @default(now())
+}
+
+/// Immutable audit trail of send decisions and consent changes (write-once).
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     String // userId | "system" | agent id
+  action    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([entityId])
+}
+
+// ----------------------------------------------------------------------------
+// Automation Layer — Surfacing Engine (Phase 4)
+// ----------------------------------------------------------------------------
+
+/// A single thing surfaced to (or suppressed from) the operator.
+model SurfaceItem {
+  id             String   @id @default(cuid())
+  orgId          String
+  kind           String // DECISION | RISK | OPPORTUNITY
+  dealId         String?
+  surfaceScore   Float
+  valueAtStake   Int      @default(0)
+  confidence     Float    @default(0)
+  moneyExempt    Boolean  @default(false) // bypasses adaptive suppression
+  batchKey       String?
+  recommendation Json
+  defaultAction  Json
+  status         String   @default("OPEN") // OPEN | RESOLVED | AUTO_DEFAULTED | EXPIRED
+  resolution     String? // approved | modified | rejected | dismissed
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([orgId, kind, status, surfaceScore])
+  @@index([batchKey])
+  @@index([status, createdAt])
+}
+
+/// Adaptive surfacing threshold per org — keeps the daily surfaced count in budget.
+model SurfacingThreshold {
+  orgId            String   @id
+  current          Float    @default(0)
+  targetDailyCount Int      @default(12)
+  actualToday      Int      @default(0)
+  updatedAt        DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// Executive OS (Phase 5)
+// ----------------------------------------------------------------------------
+
+/// A generated briefing (daily/weekly) — audit of what was surfaced to the owner.
+model BriefingLog {
+  id      String   @id @default(cuid())
+  orgId   String
+  kind    String // daily | weekly
+  payload Json
+  sentAt  DateTime @default(now())
+
+  @@index([orgId, kind, sentAt])
 }
 
 model Script {

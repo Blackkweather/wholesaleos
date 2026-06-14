@@ -1,4 +1,6 @@
 import "server-only";
+import { checkAndIncr } from "./reliability/budget";
+import { withBreaker } from "./reliability/breaker";
 
 /**
  * RentCast — real AVM (market value estimate) + recent SOLD comps for any US
@@ -63,38 +65,46 @@ export async function getRentcastValue(address: string): Promise<RentcastValue |
     return cached.value;
   }
 
+  // Phase 2 reliability: DATA killswitch + daily budget. Block → skip the call.
+  try {
+    await checkAndIncr("DATA", 1, "rentcast");
+  } catch {
+    _cache.set(ck, { value: null, ts: Date.now() });
+    return null;
+  }
+
   _callsThisProcess++;
   console.log(`[RentCast] API call #${_callsThisProcess} this process: ${address} (free tier: 50/mo)`);
 
   try {
-    const url = `https://api.rentcast.io/v1/avm/value?address=${encodeURIComponent(address)}`;
-    const res = await fetch(url, {
-      headers: { "X-Api-Key": KEY as string, Accept: "application/json" },
-      signal: AbortSignal.timeout(15000),
+    // Circuit breaker around the live call; a non-OK status counts as a failure.
+    const result = await withBreaker<RentcastValue>("rentcast", async () => {
+      const url = `https://api.rentcast.io/v1/avm/value?address=${encodeURIComponent(address)}`;
+      const res = await fetch(url, {
+        headers: { "X-Api-Key": KEY as string, Accept: "application/json" },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`RentCast ${res.status}`);
+      const j = (await res.json()) as Record<string, unknown>;
+
+      const rawComps = Array.isArray(j.comparables) ? (j.comparables as Record<string, unknown>[]) : [];
+      const comps: RentcastComp[] = rawComps.slice(0, 6).map((c) => ({
+        address: typeof c.formattedAddress === "string" ? c.formattedAddress
+          : typeof c.address === "string" ? c.address : undefined,
+        price: num(c.price) ?? num(c.lastSalePrice),
+        sqft: num(c.squareFootage),
+        beds: num(c.bedrooms),
+        baths: num(c.bathrooms),
+        distanceMi: num(c.distance),
+      }));
+
+      return {
+        avm: num(j.price),
+        avmLow: num(j.priceRangeLow),
+        avmHigh: num(j.priceRangeHigh),
+        comps,
+      };
     });
-    if (!res.ok) {
-      _cache.set(ck, { value: null, ts: Date.now() }); // cache the miss too
-      return null;
-    }
-    const j = (await res.json()) as Record<string, unknown>;
-
-    const rawComps = Array.isArray(j.comparables) ? (j.comparables as Record<string, unknown>[]) : [];
-    const comps: RentcastComp[] = rawComps.slice(0, 6).map((c) => ({
-      address: typeof c.formattedAddress === "string" ? c.formattedAddress
-        : typeof c.address === "string" ? c.address : undefined,
-      price: num(c.price) ?? num(c.lastSalePrice),
-      sqft: num(c.squareFootage),
-      beds: num(c.bedrooms),
-      baths: num(c.bathrooms),
-      distanceMi: num(c.distance),
-    }));
-
-    const result: RentcastValue = {
-      avm: num(j.price),
-      avmLow: num(j.priceRangeLow),
-      avmHigh: num(j.priceRangeHigh),
-      comps,
-    };
     _cache.set(ck, { value: result, ts: Date.now() });
     return result;
   } catch {

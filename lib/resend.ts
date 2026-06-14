@@ -1,6 +1,10 @@
 import "server-only";
 import { Resend } from "resend";
 import { env, features } from "./env";
+import { checkAndIncr } from "./reliability/budget";
+import { withBreaker } from "./reliability/breaker";
+import { withIdempotency } from "./reliability/idempotency";
+import { canSend, type SendContext } from "./compliance/guard";
 import type { DealView, BuyerView } from "@/types";
 
 export const resend = features.resend ? new Resend(env.RESEND_API_KEY!) : null;
@@ -18,6 +22,10 @@ export interface SendEmailInput {
   html: string;
   replyTo?: string;
   text?: string;
+  /** When set, deduplicates the send for 24h (prevents duplicate emails on retry). */
+  idempotencyKey?: string;
+  /** Compliance context (opt-out is always enforced; pass to apply full rules). */
+  compliance?: SendContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,21 +125,39 @@ export async function sendEmail(
   if (!resend) {
     return { data: null, error: "Email not configured (set RESEND_API_KEY)" };
   }
+
+  // Compliance gate (opt-out always; full rules when context given).
+  const primaryTo = Array.isArray(input.to) ? input.to[0] ?? "" : input.to;
+  const gate = await canSend("EMAIL", primaryTo, input.compliance);
+  if (!gate.allow) return { data: null, error: `Blocked by compliance: ${gate.reason}` };
+
+  // Killswitch + daily EMAIL budget. Block → return an error (contract preserved).
   try {
-    const { data, error } = await resend.emails.send({
-      from: EMAIL_FROM,
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-      replyTo: input.replyTo,
-    });
-    if (error) return { data: null, error: error.message };
-    return { data: data ? { id: data.id } : null, error: null };
+    await checkAndIncr("EMAIL", 1, "resend");
   } catch (e) {
-    return {
-      data: null,
-      error: e instanceof Error ? e.message : "Failed to send email",
-    };
+    return { data: null, error: e instanceof Error ? e.message : "Email blocked" };
   }
+
+  const doSend = async (): Promise<{ data: { id: string } | null; error: string | null }> => {
+    try {
+      const sent = await withBreaker("resend", async () => {
+        const { data, error } = await resend!.emails.send({
+          from: EMAIL_FROM,
+          to: input.to,
+          subject: input.subject,
+          html: input.html,
+          text: input.text,
+          replyTo: input.replyTo,
+        });
+        if (error) throw new Error(error.message);
+        return data ? { id: data.id } : null;
+      });
+      return { data: sent, error: null };
+    } catch (e) {
+      return { data: null, error: e instanceof Error ? e.message : "Failed to send email" };
+    }
+  };
+
+  if (input.idempotencyKey) return withIdempotency(`email:${input.idempotencyKey}`, doSend);
+  return doSend();
 }

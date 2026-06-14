@@ -18,6 +18,16 @@ const schema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
+
+  // AI Gateway (Vercel AI Gateway or OpenRouter) — unified multi-model transport.
+  // primary: Gemini 2.5 Flash · fallback: Llama 3.3 70B (Groq) · emergency: GPT-4o-mini
+  AI_GATEWAY_URL: z.string().optional(),    // gateway base or full /chat/completions URL
+  AI_GATEWAY_KEY: z.string().optional(),    // gateway bearer token
+  OPENROUTER_API_KEY: z.string().optional(),// used if AI_GATEWAY_KEY is unset
+  AI_PRIMARY_MODEL: z.string().optional(),
+  AI_FALLBACK_MODEL: z.string().optional(),
+  AI_EMERGENCY_MODEL: z.string().optional(),
+  RENTCAST_API_KEY: z.string().optional(),
   ESTATED_API_KEY: z.string().optional(),
   REGRID_API_KEY: z.string().optional(),
   APIFY_API_KEY: z.string().optional(),
@@ -37,11 +47,17 @@ const schema = z.object({
 
   ENCRYPTION_KEY: z.string().optional(),
 
-  // FreeLLMAPI — self-hosted multi-provider proxy (16+ free LLMs, auto-failover)
-  // Run locally: git clone https://github.com/tashfeenahmed/freellmapi && docker compose up -d
-  // Expose publicly via tunnel so Vercel can reach it (same tunnel as Twilio webhooks)
-  FREELLMAPI_URL: z.string().optional(),   // e.g. https://your-tunnel.trycloudflare.com
-  FREELLMAPI_KEY: z.string().optional(),   // bearer token from freellmapi dashboard
+  // Inngest — event bus + durable workers (serverless, no local process)
+  INNGEST_EVENT_KEY: z.string().optional(),
+  INNGEST_SIGNING_KEY: z.string().optional(),
+
+  // Reliability — daily spend caps (cents) + admin killswitch bearer secret
+  CAP_AI_CENTS: z.string().optional(),
+  CAP_SMS_CENTS: z.string().optional(),
+  CAP_MAIL_CENTS: z.string().optional(),
+  CAP_DATA_CENTS: z.string().optional(),
+  CAP_EMAIL_CENTS: z.string().optional(),
+  KILLSWITCH_SECRET: z.string().optional(),
 
   VAPI_API_KEY: z.string().optional(),
   VAPI_PHONE_NUMBER_ID: z.string().optional(),
@@ -78,8 +94,10 @@ export const features = {
   anthropic: Boolean(env.ANTHROPIC_API_KEY),
   gemini: Boolean(env.GEMINI_API_KEY),
   groq: Boolean(env.GROQ_API_KEY),
-  freellmapi: Boolean(env.FREELLMAPI_URL && env.FREELLMAPI_KEY),
+  ai: Boolean(env.AI_GATEWAY_KEY || env.OPENROUTER_API_KEY || env.GROQ_API_KEY),
+  inngest: Boolean(env.INNGEST_EVENT_KEY),
   tavily: Boolean(env.TAVILY_API_KEY),
+  rentcast: Boolean(env.RENTCAST_API_KEY),
   propertyApi: Boolean(env.ESTATED_API_KEY || env.REGRID_API_KEY),
   apify: Boolean(env.APIFY_API_KEY),
   google: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),

@@ -184,6 +184,7 @@ export interface DealView {
   notes: string | null;
   hot: boolean;
   optedOut: boolean;
+  autoActBlocked: boolean;
   nextFollowUpAt: string | null;
   // Lifecycle timestamps (ISO strings)
   dateContacted: string | null;
