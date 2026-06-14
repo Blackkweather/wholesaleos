@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDbReady, CURRENT_USER_ID } from "@/lib/data/db";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encrypt";
+import { sendSms } from "@/lib/twilio";
 import { apiOk, apiError } from "@/types";
 
 export const runtime = "nodejs";
@@ -88,60 +89,65 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      // Lazy-load Twilio to keep the bundle small
-      const twilio = (await import("twilio")).default;
-      const client = twilio(accountSid, authToken);
+      // Route through sendSms → compliance guard (opt-out/DNC/quiet hours) +
+      // budget + breaker + idempotency. The sequence was human-approved, so
+      // these messages are human-initiated.
+      const { data, error } = await sendSms(
+        { sid: accountSid, token: authToken, phone: fromPhone },
+        seq.deal.ownerPhone,
+        nextMsg.message,
+        { idempotencyKey: `drip:${nextMsg.id}`, compliance: { humanInitiated: true, dealId: seq.deal.id } },
+      );
 
-      const msg = await client.messages.create({
-        body: nextMsg.message,
-        from: fromPhone,
-        to: seq.deal.ownerPhone,
-      });
+      if (error) {
+        // Opted out / on DNC → stop texting this seller permanently.
+        if (/opted out|Do-Not-Call/i.test(error)) {
+          await prisma.smsSequence.update({ where: { id: seq.id }, data: { active: false } }).catch(() => null);
+          continue;
+        }
+        // Quiet hours → hold this step and retry on a later cron tick.
+        if (/contact hours/i.test(error)) {
+          await prisma.smsSequence.update({
+            where: { id: seq.id },
+            data: { nextSendAt: new Date(Date.now() + 12 * 60 * 60 * 1000) },
+          }).catch(() => null);
+          continue;
+        }
+        errors.push(`seq/${seq.id}: ${error}`);
+        await prisma.sMS.update({
+          where: { id: nextMsg.id },
+          data: { status: "FAILED", error: error.slice(0, 500) },
+        }).catch(() => null);
+        // Permanent failures (fake/invalid number) → stop retrying forever.
+        if (/invalid.*phone|not a valid phone number|21211|21214|21217|21219|21408/i.test(error)) {
+          await prisma.smsSequence.update({ where: { id: seq.id }, data: { active: false } }).catch(() => null);
+        }
+        continue;
+      }
 
-      // Mark message sent
+      // Sent — record + advance the sequence.
       await prisma.sMS.update({
         where: { id: nextMsg.id },
-        data: {
-          status: "SENT",
-          sentAt: now,
-          twilioSid: msg.sid,
-        },
+        data: { status: "SENT", sentAt: now, twilioSid: data?.sid },
       });
-
-      // Advance or close the sequence
       const nextStep = seq.currentStep + 1;
       const hasMore = seq.messages.some((m) => m.step === nextStep);
-
       await prisma.smsSequence.update({
         where: { id: seq.id },
         data: {
           currentStep: nextStep,
           active: hasMore,
-          // Schedule next step 3 days out by default
-          nextSendAt: hasMore
-            ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-            : null,
+          nextSendAt: hasMore ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) : null,
         },
       });
-
       sent++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       errors.push(`seq/${seq.id}: ${msg}`);
-
       await prisma.sMS.update({
         where: { id: nextMsg?.id ?? "" },
         data: { status: "FAILED", error: msg.slice(0, 500) },
       }).catch(() => null);
-
-      // Permanent failures (fake/invalid number) → stop retrying this sequence
-      // forever so it can't waste sends or flag the Twilio account.
-      if (/invalid.*phone|not a valid phone number|21211|21214|21217|21219|21408/i.test(msg)) {
-        await prisma.smsSequence.update({
-          where: { id: seq.id },
-          data: { active: false },
-        }).catch(() => null);
-      }
     }
   }
 

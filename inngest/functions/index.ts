@@ -3,6 +3,7 @@ import { leadLifecycle } from "./lead-lifecycle";
 import { sellerReply } from "./seller-reply";
 import { disposition } from "./disposition";
 import { closedDeal } from "./closed-deal";
+import { surfaceResolved } from "./surface-resolved";
 import { scheduledDailyScan } from "./scheduled/daily-scan";
 import { scheduledRescore } from "./scheduled/rescore";
 import { scheduledSkipTrace } from "./scheduled/skip-trace";
@@ -17,6 +18,7 @@ export const functions = [
   sellerReply,
   disposition,
   closedDeal,
+  surfaceResolved,
   scheduledDailyScan,
   scheduledRescore,
   scheduledSkipTrace,

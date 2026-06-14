@@ -78,6 +78,9 @@ export async function sendDealToBuyers(deal: DealView, buyerIds: string[]): Prom
       replyTo: REPLY_TO,
       subject: `Off-market deal — ${deal.address}, ${deal.city ?? ""} (${money(buyerPrice)})`,
       html: dealSheetHtml(deal, first, buyerPrice, buyerProfit, repairs),
+      // Buyers are the operator's own consented list (warm); opt-out is still honored.
+      idempotencyKey: `dispo:${deal.id}:${b.id}`,
+      compliance: { warm: true, humanInitiated: true, dealId: deal.id, actor: "system" },
     });
     if (error) { failed++; continue; }
     sent++;

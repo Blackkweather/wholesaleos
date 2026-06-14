@@ -11,6 +11,7 @@ import {
   Calculator,
   Settings,
   BarChart3,
+  ListChecks,
 } from "lucide-react";
 
 export interface NavItem {
@@ -21,6 +22,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/command", label: "Command Center", icon: ListChecks },
   { href: "/executive", label: "Executive", icon: BarChart3 },
   { href: "/agent", label: "Command", icon: Bot },
   { href: "/find", label: "Find Deals", icon: Radar },
