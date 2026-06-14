@@ -1,8 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { env, features } from "./env";
-import { geminiGenerate } from "./gemini";
-import { groqGenerate, isGroqConfigured } from "./groq";
+import { aiGenerate, isAIConfigured } from "./ai/gateway";
 import { tavilyMultiSearch, isTavilyConfigured } from "./tavily";
 import { verifyProperty } from "./property-data";
 import { MAO_ARV_MULTIPLIER, DEAL_TYPES } from "@/constants/config";
@@ -45,7 +44,7 @@ export function getClaude(): Anthropic | null {
   return client;
 }
 export function isClaudeConfigured(): boolean {
-  return features.anthropic || features.groq || features.gemini;
+  return features.anthropic || isAIConfigured();
 }
 
 interface CallOptions {
@@ -91,22 +90,11 @@ export async function callClaude(opts: CallOptions): Promise<string> {
       .trim();
   }
 
-  // Groq: fast free LLM (Llama 3.3 70B) — primary free engine for scripts/analysis.
-  if (isGroqConfigured()) {
-    return groqGenerate({
+  // AI Gateway: Gemini 2.5 Flash → Llama 3.3 70B → GPT-4o-mini, with failover.
+  if (isAIConfigured()) {
+    return aiGenerate({
       system: opts.system,
       prompt: opts.prompt ?? "",
-      maxTokens: opts.maxTokens,
-      temperature: opts.temperature,
-    });
-  }
-
-  // Gemini: fallback with Google Search grounding.
-  if (features.gemini) {
-    return geminiGenerate({
-      system: opts.system,
-      prompt: opts.prompt ?? "",
-      webSearch: opts.webSearch,
       maxTokens: opts.maxTokens,
       temperature: opts.temperature,
     });
