@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { isDbReady, CURRENT_USER_ID } from "@/lib/data/db";
 import { groqGenerate, isGroqConfigured } from "@/lib/groq";
 import { decrypt } from "@/lib/encrypt";
+import { recordConsent } from "@/lib/compliance/consent";
+import { addDnc } from "@/lib/compliance/dnc";
+import { inngest } from "@/inngest/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +73,20 @@ export async function POST(req: NextRequest) {
         content: `📩 Seller replied: "${body.slice(0, 200)}"`,
       },
     });
+
+    // A seller-initiated reply grants SMS consent (warm) — TCPA provenance.
+    await recordConsent({
+      contact: from,
+      channel: "SMS",
+      status: "GRANTED",
+      method: "inbound_reply",
+      proof: { messageSid, at: new Date().toISOString() },
+    });
+    try {
+      await inngest.send({ name: "seller.replied", data: { dealId: deal.id, contact: from, body } });
+    } catch {
+      /* event bus best-effort */
+    }
   }
 
   // Generate AI reply if Groq is configured and we have deal context
@@ -182,6 +199,14 @@ function escapeXml(s: string) {
 }
 
 async function markOptedOut(phone: string) {
+  // Honor the opt-out everywhere, even in demo mode: revoke consent + add to DNC.
+  await recordConsent({ contact: phone, channel: "SMS", status: "REVOKED", method: "stop_keyword" });
+  await addDnc(phone, "INTERNAL");
+  try {
+    await inngest.send({ name: "consent.revoked", data: { contact: phone, channel: "SMS", method: "stop_keyword" } });
+  } catch {
+    /* event bus best-effort */
+  }
   if (!(await isDbReady())) return;
   await prisma.deal.updateMany({
     where: { ownerPhone: phone, userId: CURRENT_USER_ID },
