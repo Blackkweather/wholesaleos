@@ -7,7 +7,7 @@ import type { DealView, ScoredDeal, NewDealInput, DealContext } from "@/types";
 import type { Deal, Stage, Prisma } from "@prisma/client";
 
 /** Best-effort event emission to the Inngest bus (never blocks DB work). */
-async function emitDealEvent(name: "lead.created" | "deal.contracted" | "deal.closed", dealId: string): Promise<void> {
+async function emitDealEvent(name: "lead.created" | "deal.contracted" | "deal.closed" | "followup.start", dealId: string): Promise<void> {
   try {
     const { inngest } = await import("@/inngest/client");
     await inngest.send({ name, data: { dealId } });
@@ -250,6 +250,7 @@ export async function updateDeal(
       // Reactive automation: fire lifecycle events on the gated transitions.
       if (patch.stage === "CONTRACT_SIGNED") void emitDealEvent("deal.contracted", id);
       else if (patch.stage === "CLOSED") void emitDealEvent("deal.closed", id);
+      else if (patch.stage === "CONTACTED") void emitDealEvent("followup.start", id);
       return serialize(d);
     } catch {
       return null;

@@ -64,7 +64,10 @@ Cron → events; Surfacing Engine v2 (money-exempt bypass, adaptive threshold, a
 - [x] Events emitted: `lead.created` (createDealsFromScored), `deal.contracted`/`deal.closed` (updateDeal), `lead.qualified`, `surface.resolved`, `surface.audit.sampled`
 - [x] Redis: `wos:surface:T` 1h · `wos:surface:count` 36h · money items bypass suppression
 - [x] Tests: `lib/surfacing/surfacing.test.ts` (score, novelty, money-exempt, adaptive threshold, P/R, sampling) · build green
-- _Note: per-deal durable follow-up + tenancy-required migration deferred (single-operator; non-breaking)._
+- [x] **follow-up.ts** durable per-deal cadence (3/7/14/30/60d, stops on response/opt-out/advance) — `followup.start` on stage→CONTACTED
+- [x] **lead-qualified.ts** auto-drafts first-contact outreach on qualification
+- [x] **surface-resolved.ts** closes approve→act loop (approved disposition → blast executes)
+- _Note: tenancy-required migration deferred (single-operator; non-breaking)._
 
 ## Phase 5 — Executive OS ✅
 Owner sees Decisions / Risks / Opportunities + briefing. No raw-data monitoring.

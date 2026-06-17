@@ -19,6 +19,7 @@ type Events = {
   "lead.qualified": { data: { dealId: string; score: number } };
   "deal.contracted": { data: { dealId: string } };
   "deal.closed": { data: { dealId: string } };
+  "followup.start": { data: { dealId: string } };
   "followup.due": { data: { dealId: string } };
   "surface.audit.sampled": { data: { count: number; orgId: string } };
   "surface.resolved": { data: { id: string; resolution: string } };
