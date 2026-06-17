@@ -85,7 +85,17 @@ ones marked **CHANGE** get a production value.
 | `PUBLIC_WEBHOOK_URL` | **CHANGE** → `https://your-app.vercel.app` |
 | `CRON_SECRET` | **CHANGE** → a strong random string (used to authorize cron calls) |
 | `APP_PASSWORD` | your single-user login password (see `.env` auth-gate line) |
-| `GROQ_API_KEY` | copy from `.env` |
+| `AI_GATEWAY_KEY` **or** `OPENROUTER_API_KEY` | **REQUIRED** → gateway bearer token (Phase 0 AI) |
+| `AI_PRIMARY_MODEL` | `google/gemini-2.5-flash` |
+| `AI_FALLBACK_MODEL` | `llama-3.3-70b-versatile` |
+| `AI_EMERGENCY_MODEL` | `openai/gpt-4o-mini` |
+| `INNGEST_EVENT_KEY` | **REQUIRED** → from your Inngest app (Step 4b) |
+| `INNGEST_SIGNING_KEY` | **REQUIRED** → from your Inngest app (Step 4b) |
+| `UPSTASH_REDIS_REST_URL` + `_TOKEN` | **RECOMMENDED** → reliability/compliance need real Redis in prod |
+| `KILLSWITCH_SECRET` | **CHANGE** → strong random (auth for `/api/admin/*`) |
+| `CAP_AI_CENTS` … `CAP_EMAIL_CENTS` | optional caps (defaults apply) |
+| `RENTCAST_API_KEY` | copy from `.env` (ARV/comps) |
+| `GROQ_API_KEY` | copy from `.env` (enables AI fallback tier) |
 | `TAVILY_API_KEY` | copy from `.env` |
 | `GEMINI_API_KEY` | copy from `.env` |
 | `APIFY_API_KEY` | copy from `.env` |
@@ -103,6 +113,33 @@ Optional (only if you use them): `ANTHROPIC_API_KEY`, `ESTATED_API_KEY`,
 
 > Twilio creds are **not** env vars — they live encrypted in the DB and you'll
 > re-enter them in Step 7.
+
+---
+
+## Step 4a — Push the schema to your cloud database (REQUIRED)
+
+The cloud DB starts empty. Sync the full schema (including the Phase 1–5 tables:
+Estimate, Outcome, Calibration, SpendLedger, DeadLetter, Consent, DncEntry,
+AuditLog, SurfaceItem, SurfacingThreshold, BriefingLog) **before** the first deploy:
+
+```bash
+# from wholesaleos/, with your production connection string:
+DATABASE_URL="postgresql://...neon.tech/...?sslmode=require" npx prisma db push
+```
+
+Re-run this whenever the schema changes. (The build runs `prisma generate`, not
+`db push` — applying schema to prod is a deliberate, separate step.)
+
+## Step 4b — Create the Inngest app (REQUIRED for automation)
+
+1. Sign up at **inngest.com** → create an app.
+2. Copy the **Event Key** and **Signing Key** into Vercel (`INNGEST_EVENT_KEY`,
+   `INNGEST_SIGNING_KEY`).
+3. After deploy, add your serve endpoint in the Inngest dashboard:
+   `https://your-app.vercel.app/api/inngest` → Inngest auto-discovers all 14
+   functions (lead lifecycle, follow-up cadence, disposition, briefings, etc.).
+4. Inngest runs the scheduled functions (daily scan, briefings, health check),
+   so you can skip the external cron service in Step 6 if you prefer.
 
 ---
 
@@ -155,6 +192,10 @@ Hobby native cron is daily-only, so the **SMS drip** (hourly) and **skip-trace**
 ## Step 8 — Verify it's live
 
 - Visit `https://your-app.vercel.app/api/status` → should return OK.
+- `GET /api/test/ai-health?ping=1` → each provider tier `configured: true` (Phase 0 gateway).
+- `GET /api/admin/spend` with header `Authorization: Bearer <KILLSWITCH_SECRET>` → daily spend per category (Phase 2).
+- Open `/command` (Command Center) → the Decisions/Risks/Opportunities feed (Phase 5).
+- In the Inngest dashboard, send an `app/ping` event → the `smoke-ping` function runs (confirms the event bus is wired).
 - In Vercel → **Deployments → Functions/Logs**, manually run the daily scan:
   `https://your-app.vercel.app/api/cron/daily-scan` won't run without the
   `CRON_SECRET` header — trigger it from cron-job.org "Run now", or from the
