@@ -1,5 +1,6 @@
 import { smoke } from "./_smoke";
 import { leadLifecycle } from "./lead-lifecycle";
+import { leadQualified } from "./lead-qualified";
 import { sellerReply } from "./seller-reply";
 import { disposition } from "./disposition";
 import { closedDeal } from "./closed-deal";
@@ -15,6 +16,7 @@ import { scheduledDailyBriefing } from "./scheduled/daily-briefing";
 export const functions = [
   smoke,
   leadLifecycle,
+  leadQualified,
   sellerReply,
   disposition,
   closedDeal,
