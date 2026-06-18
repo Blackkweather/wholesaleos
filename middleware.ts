@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 export const AUTH_COOKIE = "wos_auth";
 
 /** Paths that are always public — no auth required. */
-const PUBLIC_PREFIXES = ["/login", "/api/auth/login", "/api/auth/logout", "/api/cron", "/api/webhooks", "/api/test"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth/login", "/api/auth/logout", "/api/cron", "/api/webhooks", "/api/test", "/api/inngest"];
 
 /**
  * Derive a deterministic auth token from the password + secret using HMAC-SHA256.
