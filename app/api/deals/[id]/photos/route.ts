@@ -30,11 +30,6 @@ function osmMapUrl(lat: number, lon: number): string {
   return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=${z}&size=800x600&maptype=mapnik&markers=${lat},${lon},red-pushpin`;
 }
 
-function osmEmbedUrl(lat: number, lon: number): string {
-  const delta = 0.002;
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${lon - delta},${lat - delta},${lon + delta},${lat + delta}&layer=mapnik&marker=${lat},${lon}`;
-}
-
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const deal = await getDeal(params.id);
   if (!deal) return NextResponse.json(apiError("Deal not found"), { status: 404 });

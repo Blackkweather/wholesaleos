@@ -127,7 +127,7 @@ export function SellerProfileCard({ dealId }: { dealId: string }) {
       <CardContent>
         {!expanded && !hasSomeData && (
           <p className="text-sm text-muted-foreground">
-            No seller profile yet. Click "Fill in" to capture what the seller wants, needs, and their deal-breakers.
+            No seller profile yet. Click &quot;Fill in&quot; to capture what the seller wants, needs, and their deal-breakers.
           </p>
         )}
 

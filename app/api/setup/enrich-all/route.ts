@@ -4,7 +4,7 @@ import { isDbReady, getCurrentUserId } from "@/lib/data/db";
 import { lookupOwnership } from "@/lib/data/ownership";
 import { requireOwner } from "@/lib/admin-auth";
 import { apiOk, apiError } from "@/types";
-import type { PropertyPhoto, OwnerRecord } from "@/types";
+import type { PropertyPhoto } from "@/types";
 import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
