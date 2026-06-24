@@ -35,10 +35,18 @@ export async function GET(req: Request) {
   if (!auth.ok) return NextResponse.json(apiError(auth.error), { status: auth.status });
   if (!(await isDbReady())) return NextResponse.json(apiError("No database"), { status: 500 });
 
+  const url = new URL(req.url);
+  const skip = parseInt(url.searchParams.get("skip") ?? "0", 10);
+  const batchSize = 30;
+
   const userId = await getCurrentUserId();
+  const totalCount = await prisma.deal.count({ where: { userId } });
   const deals = await prisma.deal.findMany({
     where: { userId },
     select: { id: true, address: true, city: true, state: true, zipCode: true, photos: true, ownerCount: true },
+    orderBy: { createdAt: "asc" },
+    skip,
+    take: batchSize,
   });
 
   let photosAdded = 0;
@@ -46,12 +54,9 @@ export async function GET(req: Request) {
   const errors: string[] = [];
 
   for (const deal of deals) {
-    // Nominatim rate limit: 1 request/second
-    await new Promise((r) => setTimeout(r, 1100));
-
-    // Photos — skip if already has photos
     const existing = deal.photos as PropertyPhoto[] | null;
     if (!existing?.length && deal.address) {
+      await new Promise((r) => setTimeout(r, 1100));
       try {
         const geo = await geocode(deal.address, deal.city, deal.state);
         if (geo) {
@@ -67,7 +72,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // Ownership — skip if already has ownership data
     if (!deal.ownerCount && deal.address && deal.city) {
       try {
         const result = await lookupOwnership(deal.address, deal.city, deal.state ?? "TX", deal.zipCode ?? undefined);
@@ -87,10 +91,14 @@ export async function GET(req: Request) {
     }
   }
 
+  const nextSkip = skip + batchSize;
   return NextResponse.json(apiOk({
-    total: deals.length,
+    total: totalCount,
+    batch: { from: skip, to: skip + deals.length },
     photosAdded,
     ownershipAdded,
+    hasMore: nextSkip < totalCount,
+    nextUrl: nextSkip < totalCount ? `/api/setup/enrich-all?skip=${nextSkip}` : null,
     errors: errors.slice(0, 20),
   }));
 }

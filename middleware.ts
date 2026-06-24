@@ -1,49 +1,83 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export const AUTH_COOKIE = "wos_auth";
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/api/auth",
+  "/api/cron",
+  "/api/webhooks",
+  "/api/inngest",
+  "/api/stripe/webhook",
+  "/api/setup",
+];
 
-/** Paths that are always public — no auth required. */
-const PUBLIC_PREFIXES = ["/login", "/api/auth/login", "/api/auth/logout", "/api/cron", "/api/webhooks", "/api/test", "/api/inngest"];
+const PUBLIC_PAGES = ["/", "/terms", "/privacy"];
 
-/**
- * Derive a deterministic auth token from the password + secret using HMAC-SHA256.
- * Works on the Edge (Web Crypto API, no Node built-ins).
- */
-async function deriveToken(password: string, secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(password));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+const rateLimit = new Map<string, { count: number; resetAt: number }>();
+
+const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
+  "/api/auth": { max: 10, windowMs: 60_000 },
+  "/api/deals/scan": { max: 5, windowMs: 60_000 },
+  "/api/analyze": { max: 10, windowMs: 60_000 },
+  "/api/lookup": { max: 10, windowMs: 60_000 },
+  "/api/buyers/scan": { max: 5, windowMs: 60_000 },
+  "/api/deals/": { max: 30, windowMs: 60_000 },
+};
+
+function checkLimit(ip: string, path: string): boolean {
+  for (const [prefix, { max, windowMs }] of Object.entries(RATE_LIMITS)) {
+    if (!path.startsWith(prefix)) continue;
+    const key = `${ip}:${prefix}`;
+    const now = Date.now();
+    const entry = rateLimit.get(key);
+    if (!entry || entry.resetAt < now) {
+      rateLimit.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    entry.count++;
+    return entry.count <= max;
+  }
+  return true;
 }
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Always allow Next.js internals and public paths.
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  const password = process.env.APP_PASSWORD;
-  // No password configured → open access (useful for local dev without a gate).
-  if (!password) return NextResponse.next();
+  if (PUBLIC_PAGES.includes(pathname)) {
+    return NextResponse.next();
+  }
 
-  const secret = process.env.NEXTAUTH_SECRET ?? "dev-only-secret-please-change-in-production-0001";
-  const expected = await deriveToken(password, secret);
-  const cookie = req.cookies.get(AUTH_COOKIE)?.value;
+  if (pathname.startsWith("/api/")) {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.ip ?? "unknown";
+    if (!checkLimit(ip, pathname)) {
+      return NextResponse.json({ error: "Too many requests. Slow down." }, { status: 429 });
+    }
+  }
 
-  if (cookie !== expected) {
+  const token = await getToken({
+    req,
+    secret:
+      process.env.NEXTAUTH_SECRET ??
+      "dev-only-secret-please-change-in-production-0001",
+  });
+
+  if (!token) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 },
+      );
+    }
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("from", pathname === "/" ? "/dashboard" : pathname);
+    loginUrl.searchParams.set(
+      "callbackUrl",
+      pathname === "/" ? "/dashboard" : pathname,
+    );
     return NextResponse.redirect(loginUrl);
   }
 
@@ -51,12 +85,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  /*
-   * Match everything except:
-   * - _next/static  (built assets)
-   * - _next/image   (image optimisation)
-   * - favicon.ico
-   * - any *.png / *.svg / *.ico static images
-   */
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|svg|ico)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|svg|ico|jpg|jpeg|gif|webp|woff2?)$).*)",
+  ],
 };
