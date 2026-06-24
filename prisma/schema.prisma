@@ -77,6 +77,14 @@ model User {
   // Web Push subscription payload
   pushSubscription Json?
 
+  // Stripe
+  stripeCustomerId   String? @unique
+  stripePriceId      String?
+  stripeSubId        String?
+  stripeSubStatus    String? // active | trialing | past_due | canceled | incomplete
+  stripeTrialEnd     DateTime?
+  stripePeriodEnd    DateTime?
+
   onboardedAt DateTime?
 
   accounts Account[]
@@ -155,6 +163,16 @@ model Deal {
 
   notes String?
   tags  String[]
+
+  // Ownership history (JSON array of prior owners from county/deed records)
+  ownerCount   Int?
+  ownerHistory Json?
+
+  // Seller profile — wants, needs, deal-breakers, situation details
+  sellerProfile Json?
+
+  // Property photos (JSON array of {url, label, source})
+  photos Json?
 
   hot            Boolean   @default(false)
   optedOut       Boolean   @default(false)

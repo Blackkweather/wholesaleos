@@ -50,6 +50,11 @@ const STATEMENTS: string[] = [
 
   `CREATE TABLE IF NOT EXISTS "SurfacingThreshold" ("orgId" TEXT NOT NULL, "current" DOUBLE PRECISION NOT NULL DEFAULT 0, "targetDailyCount" INTEGER NOT NULL DEFAULT 12, "actualToday" INTEGER NOT NULL DEFAULT 0, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "SurfacingThreshold_pkey" PRIMARY KEY ("orgId"))`,
 
+  `ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "ownerCount" INTEGER`,
+  `ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "ownerHistory" JSONB`,
+  `ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "sellerProfile" JSONB`,
+  `ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "photos" JSONB`,
+
   `CREATE TABLE IF NOT EXISTS "BriefingLog" ("id" TEXT NOT NULL, "orgId" TEXT NOT NULL, "kind" TEXT NOT NULL, "payload" JSONB NOT NULL, "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "BriefingLog_pkey" PRIMARY KEY ("id"))`,
   `CREATE INDEX IF NOT EXISTS "BriefingLog_orgId_kind_sentAt_idx" ON "BriefingLog"("orgId", "kind", "sentAt")`,
 ];

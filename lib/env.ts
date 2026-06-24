@@ -70,7 +70,16 @@ const schema = z.object({
   LOB_FROM_STATE: z.string().optional(),
   LOB_FROM_ZIP: z.string().optional(),
 
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+
   OWNER_EMAIL: z.string().optional(),
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  STRIPE_STARTER_PRICE_ID: z.string().optional(),
+  STRIPE_PRO_PRICE_ID: z.string().optional(),
+  STRIPE_TEAM_PRICE_ID: z.string().optional(),
+
   NEXT_PUBLIC_APP_URL: z.string().optional(),
   PUBLIC_WEBHOOK_URL: z.string().optional(),
   CRON_SECRET: z.string().optional(),
@@ -105,6 +114,7 @@ export const features = {
   redis: Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN),
   vapi: Boolean(env.VAPI_API_KEY && env.VAPI_PHONE_NUMBER_ID),
   lob: Boolean(env.LOB_API_KEY && env.LOB_FROM_LINE1),
+  stripe: Boolean(env.STRIPE_SECRET_KEY),
 } as const;
 
 export type Features = typeof features;

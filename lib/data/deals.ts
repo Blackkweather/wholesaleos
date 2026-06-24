@@ -1,12 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { isDbReady, CURRENT_USER_ID, ensureUser } from "./db";
+import { isDbReady, getCurrentUserId, ensureUser } from "./db";
 import { demoDealStore } from "../demo-store";
 import { MAO_ARV_MULTIPLIER, STAGE_TIMESTAMP, type StageKey } from "@/constants/config";
-import type { DealView, ScoredDeal, NewDealInput, DealContext } from "@/types";
+import type { DealView, ScoredDeal, NewDealInput, DealContext, OwnerRecord, SellerProfile, PropertyPhoto } from "@/types";
 import type { Deal, Stage, Prisma } from "@prisma/client";
 
-/** Best-effort event emission to the Inngest bus (never blocks DB work). */
 async function emitDealEvent(name: "lead.created" | "deal.contracted" | "deal.closed" | "followup.start", dealId: string): Promise<void> {
   try {
     const { inngest } = await import("@/inngest/client");
@@ -16,7 +15,6 @@ async function emitDealEvent(name: "lead.created" | "deal.contracted" | "deal.cl
   }
 }
 
-/** Map a stored deal to the lightweight context AI generators expect. */
 export function dealViewToContext(d: DealView): DealContext {
   return {
     address: d.address,
@@ -63,6 +61,10 @@ function serialize(d: Deal): DealView {
     aiSummary: d.aiSummary,
     tags: d.tags,
     notes: d.notes,
+    ownerCount: d.ownerCount,
+    ownerHistory: (d.ownerHistory as OwnerRecord[] | null) ?? null,
+    sellerProfile: (d.sellerProfile as SellerProfile | null) ?? null,
+    photos: (d.photos as PropertyPhoto[] | null) ?? null,
     hot: d.hot,
     optedOut: d.optedOut,
     autoActBlocked: d.autoActBlocked,
@@ -82,9 +84,9 @@ function serialize(d: Deal): DealView {
   };
 }
 
-function scoredToCreate(s: ScoredDeal): Prisma.DealCreateInput {
+function scoredToCreate(s: ScoredDeal, userId: string): Prisma.DealCreateInput {
   return {
-    user: { connect: { id: CURRENT_USER_ID } },
+    user: { connect: { id: userId } },
     address: s.address,
     city: s.city ?? "",
     state: s.state ?? null,
@@ -112,8 +114,9 @@ function scoredToCreate(s: ScoredDeal): Prisma.DealCreateInput {
 
 export async function listDeals(): Promise<DealView[]> {
   if (await isDbReady()) {
+    const userId = await getCurrentUserId();
     const rows = await prisma.deal.findMany({
-      where: { userId: CURRENT_USER_ID },
+      where: { userId },
       orderBy: { createdAt: "desc" },
     });
     return rows.map(serialize);
@@ -123,8 +126,9 @@ export async function listDeals(): Promise<DealView[]> {
 
 export async function getDeal(id: string): Promise<DealView | null> {
   if (await isDbReady()) {
+    const userId = await getCurrentUserId();
     const d = await prisma.deal.findFirst({
-      where: { id, userId: CURRENT_USER_ID },
+      where: { id, userId },
     });
     return d ? serialize(d) : null;
   }
@@ -136,11 +140,11 @@ export async function createDealsFromScored(
 ): Promise<DealView[]> {
   if (items.length === 0) return [];
   if (await isDbReady()) {
-    await ensureUser();
+    const userId = await getCurrentUserId();
+    await ensureUser(userId);
 
-    // Dedup: skip addresses already in the DB (case-insensitive)
     const existing = await prisma.deal.findMany({
-      where: { userId: CURRENT_USER_ID },
+      where: { userId },
       select: { address: true },
     });
     const existingAddrs = new Set(existing.map((d) => d.address.toLowerCase().trim()));
@@ -151,7 +155,7 @@ export async function createDealsFromScored(
     if (fresh.length === 0) return [];
 
     const created = await prisma.$transaction(
-      fresh.map((s) => prisma.deal.create({ data: scoredToCreate(s) })),
+      fresh.map((s) => prisma.deal.create({ data: scoredToCreate(s, userId) })),
     );
     const views = created.map(serialize);
     for (const v of views) void emitDealEvent("lead.created", v.id);
@@ -162,7 +166,8 @@ export async function createDealsFromScored(
 
 export async function createManualDeal(input: NewDealInput): Promise<DealView> {
   if (await isDbReady()) {
-    await ensureUser();
+    const userId = await getCurrentUserId();
+    await ensureUser(userId);
     const offerPrice =
       input.offerPrice ??
       (input.arv !== undefined
@@ -173,7 +178,7 @@ export async function createManualDeal(input: NewDealInput): Promise<DealView> {
         : null);
     const d = await prisma.deal.create({
       data: {
-        user: { connect: { id: CURRENT_USER_ID } },
+        user: { connect: { id: userId } },
         address: input.address,
         city: input.city ?? "",
         state: input.state ?? null,
@@ -210,6 +215,10 @@ export interface DealPatch {
   assignmentFee?: number;
   expectedProfit?: number;
   actualProfit?: number;
+  ownerCount?: number;
+  ownerHistory?: OwnerRecord[];
+  sellerProfile?: SellerProfile;
+  photos?: PropertyPhoto[];
 }
 
 export async function updateDeal(
@@ -218,26 +227,30 @@ export async function updateDeal(
 ): Promise<DealView | null> {
   if (await isDbReady()) {
     try {
-      // Auto-stamp the lifecycle timestamp the first time a deal enters a stage.
+      const userId = await getCurrentUserId();
       const tsPatch: Record<string, Date> = {};
       if (patch.stage) {
-        const existing = await prisma.deal.findUnique({ where: { id } });
+        const existing = await prisma.deal.findFirst({ where: { id, userId } });
+        if (!existing) return null;
         const field = STAGE_TIMESTAMP[patch.stage as StageKey];
-        if (field && existing && !(existing as Record<string, unknown>)[field]) {
+        if (field && !(existing as Record<string, unknown>)[field]) {
           tsPatch[field] = new Date();
         }
         if (patch.stage === "CONTACTED") {
           tsPatch.lastContactAt = new Date();
-          // Kick off the follow-up cadence (first follow-up due in 3 days)
           if (patch.nextFollowUpAt === undefined) {
             tsPatch.nextFollowUpAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
           }
         }
       }
+      const { ownerHistory, sellerProfile, photos, ...rest } = patch;
       const d = await prisma.deal.update({
         where: { id },
         data: {
-          ...patch,
+          ...rest,
+          ...(ownerHistory !== undefined ? { ownerHistory: ownerHistory as unknown as Prisma.InputJsonValue } : {}),
+          ...(sellerProfile !== undefined ? { sellerProfile: sellerProfile as unknown as Prisma.InputJsonValue } : {}),
+          ...(photos !== undefined ? { photos: photos as unknown as Prisma.InputJsonValue } : {}),
           nextFollowUpAt:
             patch.nextFollowUpAt === undefined
               ? undefined
@@ -247,7 +260,6 @@ export async function updateDeal(
           ...tsPatch,
         },
       });
-      // Reactive automation: fire lifecycle events on the gated transitions.
       if (patch.stage === "CONTRACT_SIGNED") void emitDealEvent("deal.contracted", id);
       else if (patch.stage === "CLOSED") void emitDealEvent("deal.closed", id);
       else if (patch.stage === "CONTACTED") void emitDealEvent("followup.start", id);
@@ -262,6 +274,9 @@ export async function updateDeal(
 export async function deleteDeal(id: string): Promise<boolean> {
   if (await isDbReady()) {
     try {
+      const userId = await getCurrentUserId();
+      const existing = await prisma.deal.findFirst({ where: { id, userId } });
+      if (!existing) return false;
       await prisma.deal.delete({ where: { id } });
       return true;
     } catch {

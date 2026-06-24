@@ -2,6 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { isDbReady } from "./db";
 import { groqGenerate, isGroqConfigured } from "@/lib/groq";
+import type { SellerProfile } from "@/types";
+import type { Prisma } from "@prisma/client";
 
 export interface SellerIntelligence {
   hasData: boolean;
@@ -60,6 +62,10 @@ Only use what's stated; use "unknown" where unclear.`;
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) return { hasData: false, touchpoints };
     const p = JSON.parse(m[0]) as Partial<SellerIntelligence>;
+
+    // Auto-sync intel into the seller profile (best-effort, merge only empty fields)
+    syncIntelToProfile(dealId, p).catch(() => {});
+
     return {
       hasData: true,
       motivationLevel: p.motivationLevel,
@@ -74,4 +80,18 @@ Only use what's stated; use "unknown" where unclear.`;
   } catch {
     return { hasData: false, touchpoints };
   }
+}
+
+async function syncIntelToProfile(dealId: string, intel: Partial<SellerIntelligence>): Promise<void> {
+  if (!(await isDbReady())) return;
+  const deal = await prisma.deal.findUnique({ where: { id: dealId }, select: { sellerProfile: true } });
+  const existing = (deal?.sellerProfile as SellerProfile | null) ?? {};
+  const updates: Partial<SellerProfile> = {};
+  if (intel.motivationLevel && !existing.motivationLevel) updates.motivationLevel = intel.motivationLevel as SellerProfile["motivationLevel"];
+  if (intel.timeline && !existing.timeline) updates.timeline = intel.timeline;
+  if (intel.propertyCondition && !existing.propertyCondition) updates.propertyCondition = intel.propertyCondition;
+  if (intel.distressSignals?.length && !existing.painPoints?.length) updates.painPoints = intel.distressSignals;
+  if (Object.keys(updates).length === 0) return;
+  const merged = { ...existing, ...updates, lastUpdated: new Date().toISOString() };
+  await prisma.deal.update({ where: { id: dealId }, data: { sellerProfile: merged as unknown as Prisma.InputJsonValue } });
 }

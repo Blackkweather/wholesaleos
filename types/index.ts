@@ -153,6 +153,46 @@ export interface BuyerPitch {
   body: string;
 }
 
+// ---------------------------------------------------------------------------
+// Ownership history + seller profile
+// ---------------------------------------------------------------------------
+
+export interface OwnerRecord {
+  name: string;
+  dateFrom?: string;
+  dateTo?: string;
+  deedType?: string;
+  salePrice?: number;
+}
+
+export interface SellerProfile {
+  askingPrice?: number;
+  timeline?: string;
+  reasonForSelling?: string;
+  financialSituation?: string;
+  emotionalState?: string;
+  propertyCondition?: string;
+  occupancy?: string;
+  motivationLevel?: "Low" | "Medium" | "High" | "Very High";
+  urgency?: "None" | "Low" | "Medium" | "High" | "Critical";
+  mustHaves?: string[];
+  dealBreakers?: string[];
+  painPoints?: string[];
+  preferredContact?: string;
+  bestTimeToCall?: string;
+  behindOnMortgage?: boolean;
+  mortgageBalance?: number;
+  wantsLeaseback?: boolean;
+  sellerNotes?: string;
+  lastUpdated?: string;
+}
+
+export interface PropertyPhoto {
+  url: string;
+  label?: string;
+  source?: "streetview" | "zillow" | "manual" | "mls";
+}
+
 /** Canonical client-facing deal shape (DB rows and demo store both map to this). */
 export interface DealView {
   id: string;
@@ -182,6 +222,10 @@ export interface DealView {
   aiSummary: string | null;
   tags: string[];
   notes: string | null;
+  ownerCount: number | null;
+  ownerHistory: OwnerRecord[] | null;
+  sellerProfile: SellerProfile | null;
+  photos: PropertyPhoto[] | null;
   hot: boolean;
   optedOut: boolean;
   autoActBlocked: boolean;

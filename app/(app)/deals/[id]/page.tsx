@@ -38,6 +38,9 @@ import { BuyerMatchesCard } from "@/components/deals/buyer-matches-card";
 import { DispositionCard } from "@/components/deals/disposition-card";
 import { DealCommandBar } from "@/components/deals/deal-command-bar";
 import { SkipTracePanel } from "@/components/deals/skip-trace-panel";
+import { PropertyPhotos } from "@/components/deals/property-photos";
+import { OwnershipCard } from "@/components/deals/ownership-card";
+import { SellerProfileCard } from "@/components/deals/seller-profile-card";
 import { NegotiationCopilot } from "@/components/deals/negotiation-copilot";
 import {
   useDeal,
@@ -388,12 +391,15 @@ export default function DealDetailPage({
 
         <TabsContent value="overview">
           <div className="space-y-4">
+            <PropertyPhotos dealId={deal.id} />
             <SkipTracePanel
               dealId={deal.id}
               ownerName={deal.ownerName}
               ownerPhone={deal.ownerPhone}
               ownerEmail={deal.ownerEmail}
             />
+            <OwnershipCard dealId={deal.id} />
+            <SellerProfileCard dealId={deal.id} />
             <SellerIntelCard dealId={deal.id} />
             <LeadScoreCard dealId={deal.id} />
             <div id="buyer-matches">
